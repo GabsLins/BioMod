@@ -1,0 +1,281 @@
+install.packages(c("biomod2", "sp", "raster", "dplyr"))
+
+##Biomod2 teste
+#24/07/2025
+
+library(biomod2)
+library(sp)
+library(raster)
+library(dplyr)
+
+
+###### ALL LAYERS
+## Occurrence data
+occurence <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_Rev2.csv")
+coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
+resp.var <- rep(1, 300)
+sp <- SpatialPoints(coords, proj4string = CRS("+init=epsg:4326")) ## se der aviso aqui nesta linha (pq o código é antigo) dá pra fazer esse código: sp <- SpatialPoints(coords, proj4string = CRS("EPSG:4326"))
+
+occ_data <- data.frame(
+  species = rep("Vampyrum_spectrum", 300),
+  lon = c(coords$x),
+  lat = c(coords$y)
+)
+
+## Agora sim deu certo
+
+
+## Environmental data
+## Essa parte começa a dar errado quando carrego os arquivos .tif, então primeiramente
+## eu arrumei os tif de precipitação para fazer a média anual com o código abaixo:
+
+
+## Não consegui fazer a média da velocidade do vento; além disso
+## tem um detalhe no mapa gerado para temperatura média anual que
+## fornece a temperatura de metade do oceano (tentei corrigir esse problema,
+## mas acho q não vai afetar; Agora precisa refazer o código de raster
+## Usando o código a seguir mas para cada variável
+## library(raster)
+## bioclimaticvar <- raster("D:/TCC/Modelagem/")
+
+library(raster)
+bioclimaticvar <- raster("C:/Users/tunho/Desktop/GAB/Mod/precipitacao_media_anual.tif");
+maxtemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tmax_C.tif");
+meantemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tavg_C.tif");
+mintemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tmin_C.tif")
+meanvaporpressure <- raster("C:/Users/tunho/Desktop/GAB/Mod/meanvaporpressure.tif");
+coverveg20 <- raster("C:/Users/tunho/Desktop/GAB/Mod/Global Land Cover University of Maryland/2020/CoverVeg_2020_pix5000m.tif");
+wind <- raster("C:/Users/tunho/Desktop/GAB/Mod/wind_media_anual.tif")
+relevo <- raster("C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif")
+
+env_data <- stack (bioclimaticvar, maxtemperature, wind, meantemperature, mintemperature, meanvaporpressure, coverveg20,relevo)
+
+
+## Caso dê errado o código, eu fiz o código a seguir para deixar tudo na mesma dimensão e também limitar a visualização do mapa para apenas a América.
+
+library(raster)
+
+# Carregando as camadas
+bioclimaticvar <- raster("C:/Users/tunho/Desktop/GAB/Mod/precipitacao_media_anual.tif")
+maxtemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tmax_C.tif")
+meantemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tavg_C.tif")
+mintemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tmin_C.tif")
+vaporpressure <- raster("C:/Users/tunho/Desktop/GAB/Mod/meanvaporpressure.tif")
+coverveg20 <- raster("C:/Users/tunho/Desktop/GAB/Mod/CoverVeg_2020_pix5000m.tif")
+wind <- raster("C:/Users/tunho/Desktop/GAB/Mod/wind_media_anual.tif")
+relevo <- raster("C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif")
+
+# Definir a nova extensão com os novos limites
+ext_america <- extent(-170, -26, -56, 72)
+
+# Redimensionar e recortar
+res <- 0.1  
+
+bioclimaticvar <- resample(crop(bioclimaticvar, ext_america), bioclimaticvar, method='bilinear')
+maxtemperature <- resample(crop(maxtemperature, ext_america), bioclimaticvar, method='bilinear')
+meantemperature <- resample(crop(meantemperature, ext_america), bioclimaticvar, method='bilinear')
+mintemperature <- resample(crop(mintemperature, ext_america), bioclimaticvar, method='bilinear')
+vaporpressure <- resample(crop(vaporpressure, ext_america), bioclimaticvar, method='bilinear')
+coverveg20 <- resample(crop(coverveg20, ext_america), bioclimaticvar, method='bilinear')
+wind <- resample(crop(wind, ext_america), bioclimaticvar, method='bilinear')
+relevo <- resample(crop(relevo, ext_america), bioclimaticvar, method='bilinear')
+
+env_data <- stack (bioclimaticvar, maxtemperature, meantemperature, mintemperature, vaporpressure, coverveg00, wind, relevo)
+
+
+
+## BioMod2 Formated Data Object
+biomod_data <- BIOMOD_FormatingData(
+  resp.var = resp.var,
+  expl.var = env_data,
+  resp.xy = coords, ##eu usei uma nova tabela no rstudio pra dar certo
+  PA.nb.rep = 3,
+  PA.nb.absences = 600,
+  PA.strategy = "random",
+  filter.raster = FALSE, ## Dá pra trocar por true mas não sei a implicação
+  resp.name = "Vampyrum.spectrum"
+)
+
+
+## ATÉ AQUI TA RODANDO COM O COVERVEG00
+## Com isso deve dar certo essa parte
+
+## BioMod2 Modeling
+## Pra usar esse código precisa do pacote ENMeval e randomForest
+## Pra poder Rodar esse codigo debaixo precisa ter o MAXEnt e o JAVA baixado também
+
+library(ENMeval)
+library(randomForest)
+
+myOptions <- BIOMOD_ModelingOptions(
+  GBM = list(n.trees = 100)   ## Aqui eu posso selecionar quantidade de arvores
+)
+
+models <- BIOMOD_Modeling(
+  biomod_data,
+  modeling.id = "current",
+  models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'),
+  CV.strategy = 'block',  #needs to be block, due to the spatial correlation
+  prevalence = 0.5,       # Automatically set by the pseudo-absence generation
+  var.import = 3,          # N of repetitions to calculate variable importance
+  metric.eval = c('TSS', 'ROC'),
+)
+
+
+## Save Graphical outputs
+gg1 <- bm_PlotEvalMean(models, metric.eval = c("TSS", "ROC"), dataset = "calibration", do.plot = TRUE)
+dev.new()
+gg2 <- bm_PlotEvalMean(models, metric.eval = c("TSS", "ROC"), dataset = "validation", do.plot = TRUE)
+
+
+## Variables importance
+var_importance <- get_variables_importance(models)
+var_imp_df <- as.data.frame(var_importance, stringsAsFactors = FALSE)
+imp_expl <- data.frame(
+  expl_var = var_imp_df$expl.var,
+  var_imp = as.numeric(var_imp_df$var.imp),
+  stringsAsFactors = FALSE
+)
+mean_imp_var <- arrange(aggregate(var_imp ~ expl_var, data = imp_expl, FUN = mean), desc(var_imp))
+
+
+## BioMod2 Projections ## Esse código a seguir leva mais tempo e precisa ter o pacote tidyterra, ggplot2 e gam atualizado, além do maxent baixado
+
+library(gam)
+library(tidyterra)
+library(ggplot2)
+projections <- BIOMOD_Projection(
+  bm.mod = models,
+  proj.name = "proj_current",
+  new.env = env_data,
+  models.chosen = "all"
+)
+plot(projections)
+
+## PODE SER QUE TRAVE PORQUE É PESADO
+## Se ele der warning por conta do tempo de processamento, aí é melhor testar o código abaixo que inclusive já salva as projeçoes:
+
+library(tidyterra)
+library(ggplot2)
+library(raster)
+
+# Projeção dos modelos
+projections <- BIOMOD_Projection(
+  bm.mod = models,
+  proj.name = "proj_current",
+  new.env = env_data,
+  models.chosen = "all"
+)
+
+library(terra)
+library(ggplot2)
+library(tidyterra)
+
+output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste2"
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
+proj_stack <- get_predictions(projections)
+proj_names <- names(proj_stack)
+
+# Loop usando terra
+for (i in 1:terra::nlyr(proj_stack)) {
+  camada <- proj_stack[[i]]
+  nome <- proj_names[i]
+  
+  out_tif <- file.path(output_dir, paste0(nome, ".tif"))
+  out_png <- file.path(output_dir, paste0(nome, ".png"))
+  
+  # Salvar raster como GeoTIFF
+  terra::writeRaster(camada, out_tif, overwrite = TRUE)
+
+  # Salvar PNG em 4K
+  p <- autoplot(camada) +
+    ggtitle(paste("Projeção -", nome)) +
+    theme_minimal(base_size = 22)
+  
+  ggsave(filename = out_png, plot = p, width = 3840, height = 2160, units = "px", dpi = 300)
+}
+
+
+## Depois que consegui montar o mapa de coverveg00, demorou muito pra fazer o código acima, acho que meu PC não aguenta
+
+
+## BioMod2 Ensemble
+ensemble <- BIOMOD_EnsembleModeling(
+  bm.mod = models,
+  models.chosen = "all",
+  em.by = "all",
+  em.algo = c('EMmean', 'EMci'),
+  metric.select = c('TSS','ROC'),
+  metric.select.thresh = c(0.4, 0.7),
+  var.import = 3,
+  seed.val = 42
+)
+
+get_evaluations(ensemble)
+EMvar_imp <- get_variables_importance(ensemble)
+EMvar_imp_df <- as.data.frame(EMvar_imp, stringsAsFactors = FALSE)
+EMimp_expl <- data.frame(
+  expl_var = EMvar_imp_df$expl.var,
+  var_imp = as.numeric(EMvar_imp_df$var.imp),
+  stringsAsFactors = FALSE
+)
+EMmean_imp_var <- arrange(aggregate(var_imp ~ expl_var, data = EMimp_expl, FUN = mean), desc(var_imp))
+EMmean_imp_var
+
+bm_PlotEvalMean(bm.out = ensemble, dataset = 'calibration')
+bm_PlotEvalBoxplot(bm.out = ensemble, group.by = c('algo', 'algo'))
+
+
+## Ensemble projection
+EnsembleProj <- BIOMOD_EnsembleForecasting(
+  bm.em = ensemble,
+  proj.name = "ensemble",
+  models.chosen = "all",
+  new.env = env_data,
+  binary.meth = NULL, # Pode definir um threshold binário se quiser
+  compress = FALSE
+)
+
+plot(EnsembleProj)
+## Até aqui rodou certo
+## Consegui fazer rodar até aqui, mas tive que fazer no PC do meu irmão
+
+## A parte a seguir é o teste de correlação entre as camadas que pelo que entendi é pra selecionar qual delas vai ajudar a treinar com mais robustez o modelo
+## Pra fazer isso é preciso ter uma tabela com os valores ambientais de cada camada pra coordenadas aleatórias. Logo, precisa-se ter essa tabela, então abaixo, tem um código que fiz com o chatGPT pra montar essa tabela
+
+library(terra)
+library(sf)
+library(dplyr)
+
+# Lista todos os arquivos .tif
+folders <- c("bioclimaticvar", "maxtemperature", "meantemperature", 
+             "mintemperature", "meanvaporpressure", "coverveg00", "wind")
+
+raster_files <- unlist(lapply(folders, function(f) {
+  list.files(file.path("C:/Users/tunho/Desktop/GAB/Mod", f), pattern = ".tif$", full.names = TRUE)
+}))
+
+
+# Carrega como um stack (ou SpatRaster)
+env_stack <- rast(raster_files)  # terra::rast cria um "empilhamento" de camadas
+
+points_df <- read.csv("C:/Users/tunho/Desktop/GAB/Mod//Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_Rev2.csv")  # deve ter colunas: longitude, latitude
+
+# Converter para objeto espacial (sf ou SpatVector)
+points_vect <- vect(points_df, geom = c("longitude", "latitude"), crs = "EPSG:4326")  # WGS84
+
+# Extrai valores dos rasters nos pontos
+points_env <- extract(env_stack, points_vect)
+
+# Juntar com coordenadas
+result <- cbind(points_df, points_env[ , -1])  # remove a coluna ID automática do extract()
+
+write.csv(result, "C:/Users/tunho/Desktop/GAB/Mod/pointsample2.csv", row.names = FALSE)
+
+
+###### CORRELATION TEST
+pointsample <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/pointsample2.csv")
+cor_test <- cor(pointsample[1:10], method='pearson', use='complete.obs')
+correlated <- cor_test > 0.7
+
