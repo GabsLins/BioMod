@@ -80,7 +80,7 @@ coverveg20 <- resample(crop(coverveg20, ext_america), bioclimaticvar, method='bi
 wind <- resample(crop(wind, ext_america), bioclimaticvar, method='bilinear')
 relevo <- resample(crop(relevo, ext_america), bioclimaticvar, method='bilinear')
 
-env_data <- stack (bioclimaticvar, maxtemperature, meantemperature, mintemperature, vaporpressure, coverveg00, wind, relevo)
+env_data <- stack (bioclimaticvar, maxtemperature, meantemperature, mintemperature, vaporpressure, coverveg20, wind, relevo)
 
 
 
