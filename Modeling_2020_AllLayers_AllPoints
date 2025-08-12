@@ -171,7 +171,7 @@ library(terra)
 library(ggplot2)
 library(tidyterra)
 
-output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste2"
+output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste3"
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 proj_stack <- get_predictions(projections)
@@ -250,7 +250,7 @@ library(dplyr)
 
 # Lista todos os arquivos .tif
 folders <- c("bioclimaticvar", "maxtemperature", "meantemperature", 
-             "mintemperature", "meanvaporpressure", "coverveg00", "wind")
+             "mintemperature", "meanvaporpressure", "coverveg20", "wind", "relevo")
 
 raster_files <- unlist(lapply(folders, function(f) {
   list.files(file.path("C:/Users/tunho/Desktop/GAB/Mod", f), pattern = ".tif$", full.names = TRUE)
@@ -271,11 +271,11 @@ points_env <- extract(env_stack, points_vect)
 # Juntar com coordenadas
 result <- cbind(points_df, points_env[ , -1])  # remove a coluna ID automática do extract()
 
-write.csv(result, "C:/Users/tunho/Desktop/GAB/Mod/pointsample2.csv", row.names = FALSE)
+write.csv(result, "C:/Users/tunho/Desktop/GAB/Mod/pointsample3.csv", row.names = FALSE)
 
 
 ###### CORRELATION TEST
-pointsample <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/pointsample2.csv")
+pointsample <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/pointsample3.csv")
 cor_test <- cor(pointsample[1:10], method='pearson', use='complete.obs')
 correlated <- cor_test > 0.7
 
