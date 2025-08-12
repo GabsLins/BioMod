@@ -241,6 +241,9 @@ plot(EnsembleProj)
 ## Até aqui rodou certo
 ## Consegui fazer rodar até aqui, mas tive que fazer no PC do meu irmão
 
+## NAO CONSEGUI FAZER O TESTE DE CORREL DE PEARSON DESSE TESTE 
+
+
 ## A parte a seguir é o teste de correlação entre as camadas que pelo que entendi é pra selecionar qual delas vai ajudar a treinar com mais robustez o modelo
 ## Pra fazer isso é preciso ter uma tabela com os valores ambientais de cada camada pra coordenadas aleatórias. Logo, precisa-se ter essa tabela, então abaixo, tem um código que fiz com o chatGPT pra montar essa tabela
 
@@ -249,16 +252,71 @@ library(sf)
 library(dplyr)
 
 # Lista todos os arquivos .tif
-folders <- c("bioclimaticvar", "maxtemperature", "meantemperature", 
-             "mintemperature", "meanvaporpressure", "coverveg20", "wind", "relevo")
+raster_files <- list.files("C:/Users/tunho/Desktop/GAB/Mod", pattern = "\\.tif$", full.names = TRUE)
 
-raster_files <- unlist(lapply(folders, function(f) {
-  list.files(file.path("C:/Users/tunho/Desktop/GAB/Mod", f), pattern = ".tif$", full.names = TRUE)
-}))
 
 
 # Carrega como um stack (ou SpatRaster)
-env_stack <- rast(raster_files)  # terra::rast cria um "empilhamento" de camadas
+env_stack <- rast(raster_files)  # terra::rast cria um "empilhamento" de camadas ##Nessa parte do código, tive que reescrever o original e fiz o código aseguir pra forçar uma interpolaçao
+
+## interpolaçao forçada
+
+library(terra)
+
+# Lista de arquivos com seus tipos
+raster_info <- list(
+  list(file = "CoverVeg_2000_pix5000m.tif",   type = "categorical"),
+  list(file = "CoverVeg_2020_pix5000m.tif",   type = "categorical"),
+  list(file = "meanvaporpressure.tif",        type = "continuous"),
+  list(file = "media_anual_tavg_C.tif",       type = "continuous"),
+  list(file = "media_anual_tmax_C.tif",       type = "continuous"),
+  list(file = "media_anual_tmin_C.tif",       type = "continuous"),
+  list(file = "output_GMRT.tif",              type = "continuous"),  # resolução muito diferente
+  list(file = "precipitacao_media_anual.tif", type = "continuous"),
+  list(file = "wind_media_anual.tif",         type = "continuous")
+)
+
+# Define o caminho base dos arquivos
+base_path <- "C:/Users/tunho/Desktop/GAB/Mod"
+
+# Carregar o raster de referência (ex: temperatura média anual)
+ref <- terra::rast(file.path(base_path, "media_anual_tavg_C.tif"))
+
+# Preparar lista para rasters alinhados
+aligned_rasters <- list()
+
+# Loop pelos arquivos
+for (ri in raster_info) {
+  fpath <- file.path(base_path, ri$file)
+  r <- terra::rast(fpath)
+  
+  # Pular se for o raster de referência
+  if (identical(fpath, file.path(base_path, "media_anual_tavg_C.tif"))) {
+    aligned_rasters[[ri$file]] <- r
+    next
+  }
+  
+  # Alinhar com o raster de referência
+  if (!compareGeom(r, ref, stopOnError = FALSE)) {
+    method <- if (ri$type == "categorical") "near" else "bilinear"
+    r_aligned <- terra::resample(r, ref, method = method)
+    aligned_rasters[[ri$file]] <- r_aligned
+  } else {
+    aligned_rasters[[ri$file]] <- r
+  }
+}
+
+# Empilha todos os rasters
+env_stack <- rast(aligned_rasters)
+
+# Verificar resultado
+print(env_stack)
+
+
+## AQUI ACABA A INTERPOLAÇAO
+
+
+
 
 points_df <- read.csv("C:/Users/tunho/Desktop/GAB/Mod//Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_Rev2.csv")  # deve ter colunas: longitude, latitude
 
