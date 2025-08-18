@@ -11,7 +11,7 @@ library(dplyr)
 
 ###### ALL LAYERS
 ## Occurrence data
-occurence <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_2011-2025.csv")
+occurence <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_2020.csv")
 coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
 resp.var <- rep(1, 69)
 sp <- SpatialPoints(coords, proj4string = CRS("+init=epsg:4326")) ## se der aviso aqui nesta linha (pq o código é antigo) dá pra fazer esse código: sp <- SpatialPoints(coords, proj4string = CRS("EPSG:4326"))
@@ -37,21 +37,6 @@ occ_data <- data.frame(
 ## Usando o código a seguir mas para cada variável
 ## library(raster)
 ## bioclimaticvar <- raster("D:/TCC/Modelagem/")
-
-library(raster)
-bioclimaticvar <- raster("C:/Users/tunho/Desktop/GAB/Mod/precipitacao_media_anual.tif");
-maxtemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tmax_C.tif");
-meantemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tavg_C.tif");
-mintemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tmin_C.tif")
-vaporpressure <- raster("C:/Users/tunho/Desktop/GAB/Mod/meanvaporpressure.tif");
-coverveg20 <- raster("C:/Users/tunho/Desktop/GAB/Mod/Global Land Cover University of Maryland/2000/CoverVeg_2020_pix5000m.tif");
-wind <- raster("C:/Users/tunho/Desktop/GAB/Mod/wind_media_anual.tif")
-relevo <- raster("C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif")
-
-env_data <- stack (bioclimaticvar, maxtemperature, wind, meantemperature, mintemperature, vaporpressure, coverveg20, relevo)
-
-
-## Caso dê errado o código, eu fiz o código a seguir para deixar tudo na mesma dimensão e também limitar a visualização do mapa para apenas a América.
 
 library(raster)
 
