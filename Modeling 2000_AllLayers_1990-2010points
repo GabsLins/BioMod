@@ -227,6 +227,9 @@ plot(EnsembleProj)
 ## Até aqui rodou certo
 ## Consegui fazer rodar até aqui, mas tive que fazer no PC do meu irmão
 
+##### DEU ERRADO O TESTE DE CORREL!!!
+
+
 ## A parte a seguir é o teste de correlação entre as camadas que pelo que entendi é pra selecionar qual delas vai ajudar a treinar com mais robustez o modelo
 ## Pra fazer isso é preciso ter uma tabela com os valores ambientais de cada camada pra coordenadas aleatórias. Logo, precisa-se ter essa tabela, então abaixo, tem um código que fiz com o chatGPT pra montar essa tabela
 
