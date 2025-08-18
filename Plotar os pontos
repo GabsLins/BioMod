@@ -1,0 +1,63 @@
+### ---- 1. Checagem e instalação de pacotes ----
+
+
+packages <- c("raster", "sp", "ggplot2", "sf", "rnaturalearth", "rnaturalearthdata")
+
+installed <- packages %in% rownames(installed.packages())
+if (any(!installed)) {
+  install.packages(packages[!installed])
+}
+
+lapply(packages, library, character.only = TRUE)
+
+### ---- 2. Carregar tabela de pontos ----
+
+
+tabela <- "C:/Users/tunho/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_Rev2.csv"
+occ <- read.csv(tabela, header = TRUE)
+
+# Converter para sf (ajuste nomes de colunas se necessário)
+pts_sf <- st_as_sf(occ, coords = c("longitude", "latitude"), crs = 4326)
+
+### ---- 3. Shapefile da América ----
+
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+america <- world[world$continent %in% c("North America","South America"), ]
+
+# Definir extensão da América
+ext_america <- st_bbox(c(xmin = -170, xmax = -26, ymin = -56, ymax = 72), crs = st_crs(4326))
+
+# Recortar pontos e mapa
+pts_america <- st_crop(pts_sf, ext_america)
+america_crop <- st_crop(america, ext_america)
+
+### ---- 4. Plot ----
+
+
+ggplot() +
+  # Base da América
+  geom_sf(data = america_crop, fill = "gray95", color = "gray40") +
+  
+  # Pontos de ocorrência
+  geom_sf(data = pts_america, color = "red", size = 2, alpha = 0.7) +
+  
+  # Borda zebrada da área de recorte
+  annotation_sf(data = st_as_sfc(ext_america),
+                fill = NA, color = "black", size = 1, linetype = "dashed") +
+  
+  # Coordenadas fixas (a cada 10°)
+  coord_sf(xlim = c(-170, -26), ylim = c(-56, 72), expand = FALSE,
+           xbreaks = seq(-170, -20, 10),
+           ybreaks = seq(-60, 70, 10)) +
+  
+  # Aparência do mapa
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.major = element_line(color = "gray70", linetype = "dotted"),
+    panel.border = element_rect(color = "black", fill = NA, size = 1.2, linetype = "dashed")
+  ) +
+  labs(
+    title = "Ocorrências de *Vampyrum spectrum* na América",
+    x = "Longitude", y = "Latitude"
+  )
