@@ -13,11 +13,11 @@ library(dplyr)
 ## Occurrence data
 occurence <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_2020.csv")
 coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
-resp.var <- rep(1, 69)
+resp.var <- rep(1, 70)
 sp <- SpatialPoints(coords, proj4string = CRS("+init=epsg:4326")) ## se der aviso aqui nesta linha (pq o código é antigo) dá pra fazer esse código: sp <- SpatialPoints(coords, proj4string = CRS("EPSG:4326"))
 
 occ_data <- data.frame(
-  species = rep("Vampyrum_spectrum", 69),
+  species = rep("Vampyrum_spectrum", 70),
   lon = c(coords$x),
   lat = c(coords$y)
 )
@@ -75,7 +75,7 @@ biomod_data <- BIOMOD_FormatingData(
   expl.var = env_data,
   resp.xy = coords, ##eu usei uma nova tabela no rstudio pra dar certo
   PA.nb.rep = 3,
-  PA.nb.absences = 138,
+  PA.nb.absences = 140,
   PA.strategy = "random",
   filter.raster = FALSE, ## Dá pra trocar por true mas não sei a implicação
   resp.name = "Vampyrum.spectrum"
