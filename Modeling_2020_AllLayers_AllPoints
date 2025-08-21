@@ -11,7 +11,7 @@ library(dplyr)
 
 ###### ALL LAYERS
 ## Occurrence data
-occurence <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_Rev2.csv")
+occurence <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All.csv")
 coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
 resp.var <- rep(1, 301)
 sp <- SpatialPoints(coords, proj4string = CRS("+init=epsg:4326")) ## se der aviso aqui nesta linha (pq o código é antigo) dá pra fazer esse código: sp <- SpatialPoints(coords, proj4string = CRS("EPSG:4326"))
@@ -318,7 +318,7 @@ print(env_stack)
 
 
 
-points_df <- read.csv("C:/Users/tunho/Desktop/GAB/Mod//Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_Rev2.csv")  # deve ter colunas: longitude, latitude
+points_df <- read.csv("C:/Users/tunho/Desktop/GAB/Mod//Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All.csv")  # deve ter colunas: longitude, latitude
 
 # Converter para objeto espacial (sf ou SpatVector)
 points_vect <- vect(points_df, geom = c("longitude", "latitude"), crs = "EPSG:4326")  # WGS84
