@@ -249,7 +249,7 @@ raster_files <- unlist(lapply(folders, function(f) {
 # Carrega como um stack (ou SpatRaster)
 env_stack <- rast(raster_files)  # terra::rast cria um "empilhamento" de camadas
 
-points_df <- read.csv("C:/Users/tunho/Desktop/GAB/Mod//Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_Rev2.csv")  # deve ter colunas: longitude, latitude
+points_df <- read.csv("C:/Users/tunho/Desktop/GAB/Mod//Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_2000.csv")  # deve ter colunas: longitude, latitude
 
 # Converter para objeto espacial (sf ou SpatVector)
 points_vect <- vect(points_df, geom = c("longitude", "latitude"), crs = "EPSG:4326")  # WGS84
