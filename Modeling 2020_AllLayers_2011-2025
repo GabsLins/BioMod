@@ -85,8 +85,8 @@ biomod_data <- BIOMOD_FormatingData(
 ## BioMod2 Modeling
 ## Pra usar esse código precisa do pacote ENMeval e randomForest
 ## Pra poder Rodar esse codigo debaixo precisa ter o MAXEnt e o JAVA baixado também
+## Quando se instala o Maxent, ele gera 4 arquivos em uma pasta chamada maxent, vc tem q colocar eles no seu diretorio, fora da pasta maxent
 
-### MAXENT NAO RODOU!!!!!
 
 
 library(ENMeval)
@@ -145,7 +145,7 @@ library(terra)
 library(ggplot2)
 library(tidyterra)
 
-output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste5_2020"
+output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste6_CostaRica_2020"
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 proj_stack <- get_predictions(projections)
