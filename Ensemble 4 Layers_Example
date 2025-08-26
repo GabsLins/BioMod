@@ -1,0 +1,134 @@
+
+######## 4 LAYERS
+## Occurrence data
+occurence <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_2000.csv")
+coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
+resp.var <- rep(1, 84)
+sp <- SpatialPoints(coords, proj4string = CRS("EPSG:4326"))
+
+occ_data <- data.frame(
+  species = rep("Vampyrum_spectrum", 84), 
+  lon = c(coords$x),
+  lat = c(coords$y)
+)
+
+
+## Environmental data
+library(raster)
+mintemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tmin_C.tif")
+vaporpressure <- raster("C:/Users/tunho/Desktop/GAB/Mod/meanvaporpressure.tif")
+coverveg00 <- raster("C:/Users/tunho/Desktop/GAB/Mod/CoverVeg_2000_pix5000m.tif")
+relevo <- raster("C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif")
+
+# Definir a nova extensão com os novos limites
+ext_america <- extent(-170, -26, -56, 72)
+
+# Redimensionar e recortar
+res <- 0.1  
+
+mintemperature <- resample(crop(mintemperature, ext_america), bioclimaticvar, method='bilinear')
+vaporpressure <- resample(crop(vaporpressure, ext_america), bioclimaticvar, method='bilinear')
+coverveg00 <- resample(crop(coverveg00, ext_america), bioclimaticvar, method='bilinear')
+relevo <- resample(crop(relevo, ext_america), bioclimaticvar, method='bilinear')
+
+
+env_data4layers <- stack(mintemperature, vaporpresure, coverveg00, relevo)
+
+
+## BioMod2 Formated Data Object
+biomod_data4layers <- BIOMOD_FormatingData(
+  resp.var = resp.var, 
+  expl.var = env_data4layers, 
+  resp.xy = coords,
+  PA.nb.rep = 3,
+  PA.nb.absences = 200,
+  PA.strategy = "random",
+  filter.raster = FALSE,
+  resp.name = "Vampyrum.spectrum"
+)
+
+
+## BioMod2 Modeling
+models_4layers <- BIOMOD_Modeling(
+  biomod_data4layers,
+  modeling.id = "current", 
+  models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'), 
+  CV.strategy = 'block',  #needs to be block, due to the spatial correlation
+  prevalence = 0.5,       # Automatically set by the pseudo-absence generation
+  var.import = 3,          # N of repetitions to calculate variable importance
+  metric.eval = c('TSS', 'ROC'),
+)
+
+
+## Save Graphical outputs
+gg1_4layers <- bm_PlotEvalMean(models_4layers, metric.eval = c("TSS", "ROC"), dataset = "calibration", do.plot = TRUE)
+dev.new()
+gg2_4layers <- bm_PlotEvalMean(models_4layers, metric.eval = c("TSS", "ROC"), dataset = "validation", do.plot = TRUE)
+
+
+## Variables importance
+var_importance4 <- get_variables_importance(models_4layers)
+var_imp_df4 <- as.data.frame(var_importance4, stringsAsFactors = FALSE)
+imp_expl4 <- data.frame(
+  expl_var = var_imp_df4$expl.var,
+  var_imp = as.numeric(var_imp_df4$var.imp),
+  stringsAsFactors = FALSE
+)
+mean_imp_var_4layers <- aggregate(var_imp ~ expl_var, data = imp_expl4, FUN = mean)
+arrange(mean_imp_var_4layers, desc(var_imp))
+
+
+## BioMod2 Projections
+projections_4layers <- BIOMOD_Projection(
+  bm.mod = models_4layers,
+  proj.name = "current",
+  new.env = env_data4layers,
+  models.chosen = "all"
+) 
+plot(projections_4layers)
+
+
+## BioMod2 Ensemble
+ensemble_4layers <- BIOMOD_EnsembleModeling(
+  bm.mod = models_4layers,
+  models.chosen = "all",
+  em.by = "all",
+  em.algo = c('EMmean', 'EMci'),
+  metric.select = c('TSS','ROC'),
+  metric.select.thresh = c(0.4, 0.7),
+  var.import = 3,
+  seed.val = 42
+)
+
+get_evaluations(ensemble_4layers)
+bm_PlotEvalMean(bm.out = ensemble_4layers, metric.eval = c('TSS', 'ROC'), dataset = 'calibration', group.by = 'algo')
+dev.new()
+bm_PlotEvalBoxplot(bm.out = ensemble_4layers, group.by = c('algo', 'algo'))
+
+
+## Variable Importance
+EMvar_imp4 <- get_variables_importance(ensemble_4layers)
+EMvar_imp_df4 <- as.data.frame(EMvar_imp4, stringsAsFactors = FALSE)
+EMimp_expl4 <- data.frame(
+  expl_var = EMvar_imp_df4$expl.var,
+  var_imp = as.numeric(EMvar_imp_df4$var.imp),
+  stringsAsFactors = FALSE
+)
+EMmean_imp_var4 <- arrange(aggregate(var_imp ~ expl_var, data = EMimp_expl4, FUN = mean), desc(var_imp))
+EMmean_imp_var4
+
+
+## Ensemble projection
+myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
+  bm.em = ensemble_4layers,
+  proj.name = "ensemble_4layers",
+  models.chosen = "all",
+  new.env = env_data4layers,
+  binary.meth = NULL, # Pode definir um threshold binário se quiser
+  compress = FALSE
+)
+
+ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_proj4_current", "proj_proj4_current_Vampyrum.spectrum.tif"))
+plot(ensemble_raster)
+
+
