@@ -154,4 +154,31 @@ myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
 ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_proj4_current", "proj_proj4_current_Vampyrum.spectrum.tif"))
 plot(ensemble_raster)
 
+## deu errado essa ultima linha aí to testando o seguinte:
+
+## BioMod2 Ensemble Forecasting - Projection do ensemble
+myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
+  bm.em = ensemble_4layers,
+  proj.name = "ensemble_4layers",
+  models.chosen = "all",
+  new.env = env_data4layers,
+  binary.meth = NULL, # Pode definir um threshold binário se quiser
+  compress = FALSE
+)
+
+# Obtenha a camada de previsão do ensemble
+ensemble_raster <- get_predictions(myBiomodEnsembleProj)
+
+# Salve a camada de previsão do ensemble como um arquivo .tif
+output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste9_Ensemble_do_teste8"
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
+# Supondo que você queira salvar o ensemble usando um nome específico
+out_tif <- file.path(output_dir, "proj_proj4_current_Vampyrum.spectrum.tif")
+
+# Salvar o ensemble como raster
+terra::writeRaster(ensemble_raster, out_tif, overwrite = TRUE)
+
+# Plotar o raster
+plot(ensemble_raster)
 
