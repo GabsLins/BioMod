@@ -75,13 +75,10 @@ biomod_data <- BIOMOD_FormatingData(
   PA.nb.rep = 5, ## aumentei as repetições de 3 para 5
   PA.nb.absences = 1800, ## eu aumentei para 1800 e era 600, fiz isso, pois as vezes, o considerado minimamente aceitavel é terem 5x mais o numero de presenças, entao eu fiz ~6x mais por garantia
   PA.strategy = "random",
-  filter.raster = FALSE, ## Dá pra trocar por true mas não sei a implicação
+  filter.raster = TRUE, ## Dá pra trocar por true mas não sei a implicação; agr sei, o TRUE vai evitar dele descartar dados e garantir que gere apenas em locais que tenham variaveis ambientais; logo alterei pra TRUE
   resp.name = "Vampyrum.spectrum"
 )
 
-
-## ATÉ AQUI TA RODANDO COM O COVERVEG00
-## Com isso deve dar certo essa parte
 
 ## BioMod2 Modeling
 ## Pra usar esse código precisa do pacote ENMeval e randomForest
