@@ -1,0 +1,183 @@
+
+######## 4 LAYERS
+## Occurrence data
+occurence <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_2020.csv")
+coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
+resp.var <- rep(1, 70)
+sp <- SpatialPoints(coords, proj4string = CRS("EPSG:4326"))
+
+occ_data <- data.frame(
+  species = rep("Vampyrum_spectrum", 70), 
+  lon = c(coords$x),
+  lat = c(coords$y)
+)
+
+mintemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tmin_C.tif")
+vaporpressure <- raster("C:/Users/tunho/Desktop/GAB/Mod/meanvaporpressure.tif")
+relevo <- raster("C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif")
+wind <- raster("C:/Users/tunho/Desktop/GAB/Mod/wind_media_anual.tif")
+
+# Definir a nova extensão com os novos limites
+ext_america <- extent(-170, -26, -56, 72)
+
+# Redimensionar e recortar
+res <- 0.1  
+
+mintemperature <- resample(crop(mintemperature, ext_america), bioclimaticvar, method='bilinear')
+vaporpressure <- resample(crop(vaporpressure, ext_america), bioclimaticvar, method='bilinear')
+relevo <- resample(crop(relevo, ext_america), bioclimaticvar, method='bilinear')
+wind <- resample(crop(wind, ext_america), bioclimaticvar, method='bilinear')
+
+env_data4layers <- stack(mintemperature, vaporpressure, relevo, vento)
+
+
+## BioMod2 Formated Data Object
+biomod_data4layers <- BIOMOD_FormatingData(
+  resp.var = resp.var, 
+  expl.var = env_data4layers, 
+  resp.xy = coords,
+  PA.nb.rep = 5,
+  PA.nb.absences = 500,
+  PA.strategy = "random",
+  filter.raster = FALSE,
+  resp.name = "Vampyrum.spectrum"
+)
+
+
+## BioMod2 Modeling
+models_4layers <- BIOMOD_Modeling(
+  biomod_data4layers,
+  modeling.id = "current", 
+  models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'), 
+  CV.strategy = 'block',  #needs to be block, due to the spatial correlation
+  prevalence = 0.5,       # Automatically set by the pseudo-absence generation
+  var.import = 3,          # N of repetitions to calculate variable importance
+  metric.eval = c('TSS', 'ROC'),
+)
+
+
+## Save Graphical outputs
+gg1_4layers <- bm_PlotEvalMean(models_4layers, metric.eval = c("TSS", "ROC"), dataset = "calibration", do.plot = TRUE)
+dev.new()
+gg2_4layers <- bm_PlotEvalMean(models_4layers, metric.eval = c("TSS", "ROC"), dataset = "validation", do.plot = TRUE)
+
+
+## Variables importance
+var_importance4 <- get_variables_importance(models_4layers)
+var_imp_df4 <- as.data.frame(var_importance4, stringsAsFactors = FALSE)
+imp_expl4 <- data.frame(
+  expl_var = var_imp_df4$expl.var,
+  var_imp = as.numeric(var_imp_df4$var.imp),
+  stringsAsFactors = FALSE
+)
+mean_imp_var_4layers <- aggregate(var_imp ~ expl_var, data = imp_expl4, FUN = mean)
+arrange(mean_imp_var_4layers, desc(var_imp))
+
+library(terra)
+library(ggplot2)
+library(tidyterra)
+
+## BioMod2 Projections
+projections_4layers <- BIOMOD_Projection(
+  bm.mod = models_4layers,
+  proj.name = "current",
+  new.env = env_data4layers,
+  models.chosen = "all"
+) 
+
+output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste11_Ensemble do teste10"
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
+proj_stack <- get_predictions(projections_4layers)
+proj_names <- names(proj_stack)
+
+# Loop usando terra
+for (i in 1:terra::nlyr(proj_stack)) {
+  camada <- proj_stack[[i]]
+  nome <- proj_names[i]
+  
+  out_tif <- file.path(output_dir, paste0(nome, ".tif"))
+  out_png <- file.path(output_dir, paste0(nome, ".png"))
+  
+  # Salvar raster como GeoTIFF
+  terra::writeRaster(camada, out_tif, overwrite = TRUE)
+
+  # Salvar PNG em 4K
+  p <- autoplot(camada) +
+    ggtitle(paste("Projeção -", nome)) +
+    theme_minimal(base_size = 22)
+  
+  ggsave(filename = out_png, plot = p, width = 3840, height = 2160, units = "px", dpi = 300)
+}
+
+
+## BioMod2 Ensemble
+ensemble_4layers <- BIOMOD_EnsembleModeling(
+  bm.mod = models_4layers,
+  models.chosen = "all",
+  em.by = "all",
+  em.algo = c('EMmean', 'EMci'),
+  metric.select = c('TSS','ROC'),
+  metric.select.thresh = c(0.5, 0.7),
+  var.import = 3,
+  seed.val = 42
+)
+
+get_evaluations(ensemble_4layers)
+bm_PlotEvalMean(bm.out = ensemble_4layers, metric.eval = c('TSS', 'ROC'), dataset = 'calibration', group.by = 'algo')
+dev.new()
+bm_PlotEvalBoxplot(bm.out = ensemble_4layers, group.by = c('algo', 'algo'))
+
+
+## Variable Importance
+EMvar_imp4 <- get_variables_importance(ensemble_4layers)
+EMvar_imp_df4 <- as.data.frame(EMvar_imp4, stringsAsFactors = FALSE)
+EMimp_expl4 <- data.frame(
+  expl_var = EMvar_imp_df4$expl.var,
+  var_imp = as.numeric(EMvar_imp_df4$var.imp),
+  stringsAsFactors = FALSE
+)
+EMmean_imp_var4 <- arrange(aggregate(var_imp ~ expl_var, data = EMimp_expl4, FUN = mean), desc(var_imp))
+EMmean_imp_var4
+
+
+## Ensemble projection
+myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
+  bm.em = ensemble_4layers,
+  proj.name = "ensemble_4layers",
+  models.chosen = "all",
+  new.env = env_data4layers,
+  binary.meth = NULL, # Pode definir um threshold binário se quiser
+  compress = FALSE
+)
+
+ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_proj4_current", "proj_proj4_current_Vampyrum.spectrum.tif"))
+plot(ensemble_raster)
+
+## deu errado essa ultima linha aí to testando o seguinte:
+
+## BioMod2 Ensemble Forecasting - Projection do ensemble
+myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
+  bm.em = ensemble_4layers,
+  proj.name = "ensemble_4layers",
+  models.chosen = "all",
+  new.env = env_data4layers,
+  binary.meth = NULL, # Pode definir um threshold binário se quiser
+  compress = FALSE
+)
+
+# Obtenha a camada de previsão do ensemble
+ensemble_raster <- get_predictions(myBiomodEnsembleProj)
+
+# Salve a camada de previsão do ensemble como um arquivo .tif
+output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste9_Ensemble_do_teste8"
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
+# Supondo que você queira salvar o ensemble usando um nome específico
+out_tif <- file.path(output_dir, "proj_proj4_current_Vampyrum.spectrum.tif")
+
+# Salvar o ensemble como raster
+terra::writeRaster(ensemble_raster, out_tif, overwrite = TRUE)
+
+# Plotar o raster
+plot(ensemble_raster)
