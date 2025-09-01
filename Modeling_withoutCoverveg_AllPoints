@@ -74,8 +74,8 @@ biomod_data <- BIOMOD_FormatingData(
   resp.xy = coords, ##eu usei uma nova tabela no rstudio pra dar certo
   PA.nb.rep = 5, ## aumentei as repetições de 3 para 5
   PA.nb.absences = 1800, ## eu aumentei para 1800 e era 600, fiz isso, pois as vezes, o considerado minimamente aceitavel é terem 5x mais o numero de presenças, entao eu fiz ~6x mais por garantia
-  PA.strategy = "random",
-  filter.raster = TRUE, ## Dá pra trocar por true mas não sei a implicação; agr sei, o TRUE vai evitar dele descartar dados e garantir que gere apenas em locais que tenham variaveis ambientais; logo alterei pra TRUE
+  PA.strategy = "random", ## estou cogitando em alterar a estrategia pra 'disk', se fizer isso tem que fazer o seguinte código a mais depois dessa linha:  PA.strategy = 'disk',  PA.dist.min = 50000, PA.dist.max = 200000, na.rm = TRUE,
+  filter.raster = TRUE, ## Dá pra trocar por true mas não sei a implicação; agr sei, o TRUE vai evitar dele descartar dados e garantir que gere apenas em locais que tenham variaveis ambientais; logo alterei pra TRUE
   resp.name = "Vampyrum.spectrum"
 )
 
