@@ -113,6 +113,8 @@ gg1 <- bm_PlotEvalMean(models, metric.eval = c("TSS", "ROC"), dataset = "calibra
 dev.new()
 gg2 <- bm_PlotEvalMean(models, metric.eval = c("TSS", "ROC"), dataset = "validation", do.plot = TRUE)
 
+## Obtive que RF nao está bom e Maxent está intermediário; GAM, GBM e GLM estao bons
+
 
 ## Variables importance
 var_importance <- get_variables_importance(models)
@@ -130,19 +132,6 @@ mean_imp_var <- arrange(aggregate(var_imp ~ expl_var, data = imp_expl, FUN = mea
 library(gam)
 library(tidyterra)
 library(ggplot2)
-projections <- BIOMOD_Projection(
-  bm.mod = models,
-  proj.name = "proj_current",
-  new.env = env_data,
-  models.chosen = "all"
-)
-plot(projections)
-
-## PODE SER QUE TRAVE PORQUE É PESADO
-## Se ele der warning por conta do tempo de processamento, aí é melhor testar o código abaixo que inclusive já salva as projeçoes:
-
-library(tidyterra)
-library(ggplot2)
 library(raster)
 
 # Projeção dos modelos
@@ -157,7 +146,7 @@ library(terra)
 library(ggplot2)
 library(tidyterra)
 
-output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste4_2000"
+output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste8_Cover2000_AllLayers"
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 proj_stack <- get_predictions(projections)
@@ -193,7 +182,7 @@ ensemble <- BIOMOD_EnsembleModeling(
   em.by = "all",
   em.algo = c('EMmean', 'EMci'),
   metric.select = c('TSS','ROC'),
-  metric.select.thresh = c(0.4, 0.7),
+  metric.select.thresh = c(0.5, 0.7),  ## aqui eu aumentei o tss de 0.4 para 0.5
   var.import = 3,
   seed.val = 42
 )
@@ -264,6 +253,6 @@ write.csv(result, "C:/Users/tunho/Desktop/GAB/Mod/pointsample3.csv", row.names =
 
 
 ###### CORRELATION TEST
-pointsample <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/pointsample2.csv")
+pointsample <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/pointsample4.csv")
 cor_test <- cor(pointsample[1:10], method='pearson', use='complete.obs')
 correlated <- cor_test > 0.7
