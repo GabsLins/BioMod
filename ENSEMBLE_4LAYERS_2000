@@ -28,7 +28,7 @@ meantemperature <- resample(crop(meantemperature, ext_america), bioclimaticvar, 
 vaporpressure <- resample(crop(vaporpressure, ext_america), bioclimaticvar, method='bilinear')
 relevo <- resample(crop(relevo, ext_america), bioclimaticvar, method='bilinear')
 
-env_data4layers <- stack(meantemperature, vaporpresure, bioclimaticvar, relevo)
+env_data4layers <- stack(meantemperature, vaporpressure, bioclimaticvar, relevo)
 
 
 ## BioMod2 Formated Data Object
