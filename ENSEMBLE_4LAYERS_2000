@@ -73,6 +73,9 @@ imp_expl4 <- data.frame(
 mean_imp_var_4layers <- aggregate(var_imp ~ expl_var, data = imp_expl4, FUN = mean)
 arrange(mean_imp_var_4layers, desc(var_imp))
 
+library(terra)
+library(ggplot2)
+library(tidyterra)
 
 ## BioMod2 Projections
 projections_4layers <- BIOMOD_Projection(
@@ -81,7 +84,31 @@ projections_4layers <- BIOMOD_Projection(
   new.env = env_data4layers,
   models.chosen = "all"
 ) 
-plot(projections_4layers)
+
+output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste9_Ensemble do teste8"
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
+proj_stack <- get_predictions(projections_4layers)
+proj_names <- names(proj_stack)
+
+# Loop usando terra
+for (i in 1:terra::nlyr(proj_stack)) {
+  camada <- proj_stack[[i]]
+  nome <- proj_names[i]
+  
+  out_tif <- file.path(output_dir, paste0(nome, ".tif"))
+  out_png <- file.path(output_dir, paste0(nome, ".png"))
+  
+  # Salvar raster como GeoTIFF
+  terra::writeRaster(camada, out_tif, overwrite = TRUE)
+
+  # Salvar PNG em 4K
+  p <- autoplot(camada) +
+    ggtitle(paste("Projeção -", nome)) +
+    theme_minimal(base_size = 22)
+  
+  ggsave(filename = out_png, plot = p, width = 3840, height = 2160, units = "px", dpi = 300)
+}
 
 
 ## BioMod2 Ensemble
