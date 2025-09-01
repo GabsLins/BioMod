@@ -249,7 +249,7 @@ points_env <- extract(env_stack, points_vect)
 # Juntar com coordenadas
 result <- cbind(points_df, points_env[ , -1])  # remove a coluna ID automática do extract()
 
-write.csv(result, "C:/Users/tunho/Desktop/GAB/Mod/pointsample3.csv", row.names = FALSE)
+write.csv(result, "C:/Users/tunho/Desktop/GAB/Mod/pointsample5.csv", row.names = FALSE)
 
 
 ###### CORRELATION TEST
