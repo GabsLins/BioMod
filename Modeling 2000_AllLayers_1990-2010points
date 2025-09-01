@@ -73,8 +73,8 @@ biomod_data <- BIOMOD_FormatingData(
   resp.var = resp.var,
   expl.var = env_data,
   resp.xy = coords, ##eu usei uma nova tabela no rstudio pra dar certo
-  PA.nb.rep = 3,
-  PA.nb.absences = 200,
+  PA.nb.rep = 5,  ##Aqui eu vou alterar pra 5, pois a validaçao foi ruim, antes era 3
+  PA.nb.absences = 500, ##Aqui eu vou alterar pra 500, pois a validaçao foi ruim e tem pouca presença, antes era 500
   PA.strategy = "random",
   filter.raster = FALSE, ## Dá pra trocar por true mas não sei a implicação
   resp.name = "Vampyrum.spectrum"
