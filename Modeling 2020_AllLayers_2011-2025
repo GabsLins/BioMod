@@ -74,8 +74,8 @@ biomod_data <- BIOMOD_FormatingData(
   resp.var = resp.var,
   expl.var = env_data,
   resp.xy = coords, ##eu usei uma nova tabela no rstudio pra dar certo
-  PA.nb.rep = 3,
-  PA.nb.absences = 200,
+  PA.nb.rep = 5,  ##Aumentei as repetições de 3 para 5 pra calibrar melhor, assim como validar, pois testa mais vezes
+  PA.nb.absences = 500,   ## eu aumentei a quantidade de PAs pra ficar melhor com a quantidade de poucos pontos que tem; era 200
   PA.strategy = "random",
   filter.raster = FALSE, ## Dá pra trocar por true mas não sei a implicação
   resp.name = "Vampyrum.spectrum"
@@ -181,7 +181,7 @@ ensemble <- BIOMOD_EnsembleModeling(
   em.by = "all",
   em.algo = c('EMmean', 'EMci'),
   metric.select = c('TSS','ROC'),
-  metric.select.thresh = c(0.4, 0.7),
+  metric.select.thresh = c(0.5, 0.7), ## Aqui eu alterei o TSS para 0.5 e era 0.4, fiz isso pq aumenta a qualidade da calibração e da validação
   var.import = 3,
   seed.val = 42
 )
