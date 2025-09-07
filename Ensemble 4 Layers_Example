@@ -169,7 +169,7 @@ library(tidyterra)
 library(terra)
 library(sf)
 library(rnaturalearth)
-library(ggspatial) # Para escala e norte
+library(ggspatial)
 library(dplyr)
 
 # Carregue o raster
@@ -178,85 +178,118 @@ ensemble_raster <- rast("C:/Users/tunho/Documents/Vampyrum.spectrum/proj_ensembl
 # Obter shapefile dos países
 countries <- ne_countries(scale = "medium", returnclass = "sf")
 
-# Definir a extensão da sua área de estudo (ajuste conforme necessário)
+# Definir a extensão da sua área de estudo
 x_limits <- c(-120, -30)  # Longitude
 y_limits <- c(-60, 30)    # Latitude
 
 # Função para converter decimal para GMS
 decimal_to_dms <- function(decimal, type = "lon") {
-  degrees <- floor(abs(decimal))
-  minutes <- floor((abs(decimal) - degrees) * 60)
-  seconds <- round((((abs(decimal) - degrees) * 60) - minutes) * 60, 1)
-  
-  hemisphere <- ifelse(type == "lon", 
-                       ifelse(decimal >= 0, "E", "W"),
-                       ifelse(decimal >= 0, "N", "S"))
-  
-  paste0(degrees, "°", minutes, "'", seconds, "\"", hemisphere)
+    degrees <- floor(abs(decimal))
+    minutes <- floor((abs(decimal) - degrees) * 60)
+    seconds <- round((((abs(decimal) - degrees) * 60) - minutes) * 60, 1)
+    
+    hemisphere <- ifelse(type == "lon", 
+                         ifelse(decimal >= 0, "E", "W"),
+                         ifelse(decimal >= 0, "N", "S"))
+    
+    paste0(degrees, "°", minutes, "'", seconds, "\"", hemisphere)
 }
 
 # Criar sequência de coordenadas para a grade
-longitude_breaks <- seq(-120, -30, by = 15) ## se quiser mudar a distancia, tem que mudar o "by"
-latitude_breaks <- seq(-60, 30, by = 15) ## se quiser mudar a distancia, tem que mudar o "by"
+longitude_breaks <- seq(-120, -30, by = 20)
+latitude_breaks <- seq(-60, 30, by = 20)
 
-# Converter para formato GMS
+# Converter para formato GMS - COM VERIFICAÇÃO
 longitude_labels <- sapply(longitude_breaks, decimal_to_dms, type = "lon")
 latitude_labels <- sapply(latitude_breaks, decimal_to_dms, type = "lat")
 
-# Mapa com grade GMS
+# VERIFICAR se os comprimentos são iguais
+print(paste("Número de longitude_breaks:", length(longitude_breaks)))
+print(paste("Número de longitude_labels:", length(longitude_labels)))
+print(paste("Número de latitude_breaks:", length(latitude_breaks)))
+print(paste("Número de latitude_labels:", length(latitude_labels)))
+
+# Se os comprimentos forem diferentes, use esta solução alternativa:
+# Método 1: Usar rótulos automáticos em graus decimais
 ggplot() +
-  geom_spatraster(data = ensemble_raster) +
-  # Contorno dos países
-  geom_sf(data = countries, fill = NA, color = "black", size = 0.5) +
-  # Preenchimento do raster
-  scale_fill_viridis_c(
-    option = "plasma",
-    na.value = NA,
-    name = "Adequabilidade\nde Habitat"
-  ) +
-  # Grade de coordenadas em GMS
-  scale_x_continuous(
-    breaks = longitude_breaks,
-    labels = longitude_labels,
-    expand = c(0, 0)
-  ) +
-  scale_y_continuous(
-    breaks = latitude_breaks,
-    labels = latitude_labels,
-    expand = c(0, 0)
-  ) +
-  # Sistema de coordenadas
-  coord_sf(xlim = x_limits, ylim = y_limits) +
-  # Elementos do tema e grade
-  theme_minimal() +
-  theme(
-    panel.grid.major = element_line(color = "gray80", size = 0.2),
-    panel.grid.minor = element_line(color = "gray90", size = 0.1),
-    panel.background = element_rect(fill = "lightblue", colour = NA),
-    legend.position = "right"
-  ) +
-  # Adicionar escala e rosa dos ventos
-  annotation_scale(
-    location = "bl",
-    width_hint = 0.2,
-    style = "ticks"
-  ) +
-  annotation_north_arrow(
-    location = "tr",
-    which_north = "true",
-    style = north_arrow_fancy_orienteering
-  ) +
-  # Rótulos dos eixos
-  labs(
-    x = "Longitude",
-    y = "Latitude",
-    title = "Projeção do Modelo - Vampyrum spectrum",
-    subtitle = "Modelagem de Nicho"
-  )
+    geom_spatraster(data = ensemble_raster) +
+    # Contorno dos países
+    geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.5) +
+    # Preenchimento do raster
+    scale_fill_viridis_c(
+        option = "plasma",
+        na.value = NA,
+        name = "Adequabilidade\nde Habitat"
+    ) +
+    # Sistema de coordenadas com grade automática
+    coord_sf(xlim = x_limits, ylim = y_limits) +
+    # Elementos do tema e grade
+    theme_minimal() +
+    theme(
+        panel.grid.major = element_line(color = "gray30", linewidth = 0.2),
+        panel.grid.minor = element_line(color = "gray30", linewidth = 0.1),
+        panel.background = element_rect(fill = "lightblue", colour = NA),
+        legend.position = "right"
+    ) +
+    # Adicionar escala e rosa dos ventos
+    annotation_scale(
+        location = "bl",
+        width_hint = 0.2,
+        style = "ticks"
+    ) +
+    annotation_north_arrow(
+        location = "tr",
+        which_north = "true",
+        style = north_arrow_fancy_orienteering
+    ) +
+    # Rótulos dos eixos
+    labs(
+        x = "Longitude",
+        y = "Latitude",
+        title = "Projeção do Modelo - Vampyrum spectrum",
+        subtitle = "Modelagem de Nicho"
+    )
+
+# Método 2: Solução alternativa para GMS (mais robusta)
+ggplot() +
+    geom_spatraster(data = ensemble_raster) +
+    geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.5) +
+    scale_fill_viridis_c(
+        option = "plasma",
+        na.value = NA,
+        name = "Adequabilidade\nde Habitat"
+    ) +
+    # Usar scale_x_continuous e scale_y_continuous sem labels personalizados primeiro
+    scale_x_continuous(
+        breaks = longitude_breaks,
+        labels = function(x) paste0(abs(x), "°", ifelse(x < 0, "W", "E")),
+        expand = c(0, 0)
+    ) +
+    scale_y_continuous(
+        breaks = latitude_breaks,
+        labels = function(x) paste0(abs(x), "°", ifelse(x < 0, "S", "N")),
+        expand = c(0, 0)
+    ) +
+    coord_sf(xlim = x_limits, ylim = y_limits) +
+    theme_minimal() +
+    theme(
+        panel.grid.major = element_line(color = "gray30", linewidth = 0.2),
+        panel.background = element_rect(fill = "lightblue"),
+        legend.position = "right"
+    ) +
+    annotation_scale(location = "bl", width_hint = 0.2) +
+    annotation_north_arrow(location = "tr") +
+    labs(
+        x = "Longitude",
+        y = "Latitude",
+        title = "Projeção do Modelo - Vampyrum spectrum",
+        subtitle = "Modelagem de Nicho"
+    )
 
 # Salvar em alta qualidade
-ggsave("mapa_grade_gms.png",
-       width = 932, ##3840 para 4k
-       height = 552, ##2160 para 4k
+ggsave("mapa_grade_gms_teste16.png",
+       width = 932,       # Largura em pixels 3840 4k
+       height = 552,      # Altura em pixels  2160 4k
+       units = "px",       # Unidade em pixels
        dpi = 300,
-       bg = "white") ### coloca transparent pra usar como png e colar em qualquer apresentacao
+       bg = "white")
