@@ -146,7 +146,7 @@ library(terra)
 library(ggplot2)
 library(tidyterra)
 
-output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste13_semCover_rep5_700PA_TRUE_RFspecific"
+output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste15_semCover_rep5_700PA_FALSE_RFspecific"
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 proj_stack <- get_predictions(projections)
