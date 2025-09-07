@@ -1,13 +1,13 @@
 
 ######## 4 LAYERS
 ## Occurrence data
-occurence <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_2000.csv")
+occurence <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All.csv")
 coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
-resp.var <- rep(1, 84)
+resp.var <- rep(1, 301)
 sp <- SpatialPoints(coords, proj4string = CRS("EPSG:4326"))
 
 occ_data <- data.frame(
-  species = rep("Vampyrum_spectrum", 84), 
+  species = rep("Vampyrum_spectrum", 301), 
   lon = c(coords$x),
   lat = c(coords$y)
 )
@@ -15,9 +15,9 @@ occ_data <- data.frame(
 
 ## Environmental data
 library(raster)
-mintemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tmin_C.tif")
+meantemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tavg_C.tif")
 vaporpressure <- raster("C:/Users/tunho/Desktop/GAB/Mod/meanvaporpressure.tif")
-coverveg00 <- raster("C:/Users/tunho/Desktop/GAB/Mod/CoverVeg_2000_pix5000m.tif")
+bioclimaticvar <- raster("C:/Users/tunho/Desktop/GAB/Mod/precipitacao_media_anual.tif")
 relevo <- raster("C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif")
 
 # Definir a nova extensão com os novos limites
@@ -26,13 +26,13 @@ ext_america <- extent(-170, -26, -56, 72)
 # Redimensionar e recortar
 res <- 0.1  
 
-mintemperature <- resample(crop(mintemperature, ext_america), bioclimaticvar, method='bilinear')
+meantemperature <- resample(crop(meantemperature, ext_america), bioclimaticvar, method='bilinear')
 vaporpressure <- resample(crop(vaporpressure, ext_america), bioclimaticvar, method='bilinear')
-coverveg00 <- resample(crop(coverveg00, ext_america), bioclimaticvar, method='bilinear')
+bioclimaticvar <- resample(crop(bioclimaticvar, ext_america), bioclimaticvar, method='bilinear')
 relevo <- resample(crop(relevo, ext_america), bioclimaticvar, method='bilinear')
 
 
-env_data4layers <- stack(mintemperature, vaporpresure, coverveg00, relevo)
+env_data4layers <- stack(meantemperature, vaporpressure, bioclimaticvar, relevo)
 
 
 ## BioMod2 Formated Data Object
@@ -40,10 +40,10 @@ biomod_data4layers <- BIOMOD_FormatingData(
   resp.var = resp.var, 
   expl.var = env_data4layers, 
   resp.xy = coords,
-  PA.nb.rep = 3,
-  PA.nb.absences = 200,
+  PA.nb.rep = 5,
+  PA.nb.absences = 700,
   PA.strategy = "random",
-  filter.raster = FALSE,
+  filter.raster = TRUE,
   resp.name = "Vampyrum.spectrum"
 )
 
@@ -95,7 +95,7 @@ ensemble_4layers <- BIOMOD_EnsembleModeling(
   em.by = "all",
   em.algo = c('EMmean', 'EMci'),
   metric.select = c('TSS','ROC'),
-  metric.select.thresh = c(0.4, 0.7),
+  metric.select.thresh = c(0.5, 0.7),
   var.import = 3,
   seed.val = 42
 )
