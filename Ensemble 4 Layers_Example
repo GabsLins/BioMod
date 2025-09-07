@@ -15,8 +15,8 @@ occ_data <- data.frame(
 
 ## Environmental data
 library(raster)
-meantemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tavg_C.tif")
 vaporpressure <- raster("C:/Users/tunho/Desktop/GAB/Mod/meanvaporpressure.tif")
+meantemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tavg_C.tif")
 bioclimaticvar <- raster("C:/Users/tunho/Desktop/GAB/Mod/precipitacao_media_anual.tif")
 relevo <- raster("C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif")
 
@@ -26,13 +26,13 @@ ext_america <- extent(-170, -26, -56, 72)
 # Redimensionar e recortar
 res <- 0.1  
 
-meantemperature <- resample(crop(meantemperature, ext_america), bioclimaticvar, method='bilinear')
 vaporpressure <- resample(crop(vaporpressure, ext_america), bioclimaticvar, method='bilinear')
+meantemperature <- resample(crop(meantemperature, ext_america), bioclimaticvar, method='bilinear')
 bioclimaticvar <- resample(crop(bioclimaticvar, ext_america), bioclimaticvar, method='bilinear')
 relevo <- resample(crop(relevo, ext_america), bioclimaticvar, method='bilinear')
 
 
-env_data4layers <- stack(meantemperature, vaporpressure, bioclimaticvar, relevo)
+env_data4layers <- stack(vaporpressure, meantemperature, bioclimaticvar, relevo)
 
 
 ## BioMod2 Formated Data Object
