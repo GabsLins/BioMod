@@ -1,0 +1,179 @@
+######## CÓDIGO PARA CALCULAR FAIXA DE TEMPERATURA DA ESPÉCIE COM BOXPLOT ########
+
+# Carregar bibliotecas necessárias
+library(terra)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+# 1. Carregar o raster ensemble e o raster de temperatura
+ensemble_raster <- rast("C:/Users/tunho/Documents/Vampyrum.spectrum/proj_ensemble/proj_ensemble_Vampyrum.spectrum_ensemble.tif")
+temperature_raster <- rast("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tavg_C.tif")
+
+# 2. Certificar-se que os rasters têm a mesma extensão e resolução
+temperature_aligned <- resample(temperature_raster, ensemble_raster, method = "bilinear")
+
+# 3. Definir threshold de adequabilidade (ajuste conforme necessário)
+threshold <- 0.5  # Exemplo: 0.5 (50% de probabilidade)
+
+# 4. Criar máscara binária onde o ensemble é acima do threshold
+binary_mask <- ensemble_raster > threshold
+
+# 5. Extrair valores de temperatura apenas onde há adequabilidade
+suitable_temperatures <- mask(temperature_aligned, binary_mask, maskvalues = TRUE)
+
+# 6. Calcular estatísticas descritivas
+temp_values <- values(suitable_temperatures)
+temp_values <- temp_values[!is.na(temp_values)]  # Remover NAs
+
+# Estatísticas básicas
+temp_stats <- data.frame(
+  Minimo = min(temp_values),
+  Q1 = quantile(temp_values, 0.25),
+  Mediana = median(temp_values),
+  Media = mean(temp_values),
+  Q3 = quantile(temp_values, 0.75),
+  Maximo = max(temp_values),
+  Desvio_Padrao = sd(temp_values),
+  n = length(temp_values)
+)
+
+print("Estatísticas de temperatura nos habitats adequados:")
+print(temp_stats)
+
+# 7. Calcular percentis para entender a distribuição
+percentis <- quantile(temp_values, probs = c(0.05, 0.25, 0.5, 0.75, 0.95, 0.99))
+print("Percentis de temperatura:")
+print(percentis)
+
+# 8. BOXPLOT da distribuição de temperatura
+# Criar dataframe para o boxplot
+boxplot_data <- data.frame(Temperatura = temp_values)
+
+# Boxplot básico com ggplot2
+boxplot_temperatura <- ggplot(boxplot_data, aes(y = Temperatura)) +
+  geom_boxplot(fill = "lightblue", color = "darkblue", alpha = 0.7, 
+               outlier.color = "red", outlier.alpha = 0.5) +
+  stat_summary(fun = mean, geom = "point", shape = 18, size = 3, color = "red") +
+  labs(title = "Distribuição de Temperatura nos Habitats Adequados",
+       subtitle = paste("Threshold de adequabilidade =", threshold),
+       y = "Temperatura Média Anual (°C)",
+       x = "") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+print(boxplot_temperatura)
+
+# Salvar o boxplot
+ggsave("boxplot_temperatura_habitat_adequado.png", 
+       plot = boxplot_temperatura, 
+       width = 10, height = 8, dpi = 300)
+
+# 9. BOXPLOT comparativo: temperatura por classes de adequabilidade
+# Criar classes de adequabilidade
+classes_adequabilidade <- cut(values(ensemble_raster), 
+                             breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1),
+                             labels = c("0-0.2", "0.2-0.4", "0.4-0.6", "0.6-0.8", "0.8-1.0"),
+                             include.lowest = TRUE)
+
+# Criar dataframe para análise
+dados_comparativos <- data.frame(
+  Adequabilidade = classes_adequabilidade,
+  Temperatura = values(temperature_aligned)
+) %>%
+  filter(!is.na(Adequabilidade) & !is.na(Temperatura))
+
+# Boxplot comparativo
+boxplot_comparativo <- ggplot(dados_comparativos, aes(x = Adequabilidade, y = Temperatura, fill = Adequabilidade)) +
+  geom_boxplot(alpha = 0.7, outlier.alpha = 0.3) +
+  scale_fill_viridis_d(option = "plasma") +
+  labs(title = "Temperatura por Classe de Adequabilidade de Habitat",
+       subtitle = "Distribuição da temperatura média anual em diferentes níveis de adequabilidade",
+       x = "Classe de Adequabilidade",
+       y = "Temperatura Média Anual (°C)") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5),
+        legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(boxplot_comparativo)
+
+# Salvar o boxplot comparativo
+ggsave("boxplot_comparativo_temperatura_adequabilidade.png", 
+       plot = boxplot_comparativo, 
+       width = 12, height = 8, dpi = 300)
+
+# 10. Salvar resultados em arquivo
+write.csv(temp_stats, "estatisticas_temperatura_habitat_adequado.csv", row.names = FALSE)
+write.csv(data.frame(Percentil = names(percentis), Temperatura = percentis), 
+          "percentis_temperatura.csv", row.names = FALSE)
+
+# 11. Visualizar espacialmente a relação temperatura-adequabilidade
+par(mfrow = c(1, 2))
+plot(ensemble_raster, main = "Adequabilidade de Habitat")
+plot(suitable_temperatures, main = "Temperatura nos Habitats Adequados")
+
+# 12. Análise detalhada: temperatura por classes de adequabilidade
+temp_por_classe <- dados_comparativos %>%
+  group_by(Adequabilidade) %>%
+  summarise(
+    Temp_Media = mean(Temperatura),
+    Temp_Min = min(Temperatura),
+    Temp_Max = max(Temperatura),
+    Temp_Q1 = quantile(Temperatura, 0.25),
+    Temp_Mediana = median(Temperatura),
+    Temp_Q3 = quantile(Temperatura, 0.75),
+    n = n()
+  )
+
+print("Temperatura por classe de adequabilidade:")
+print(temp_por_classe)
+
+# 13. Salvar raster de temperatura nos habitats adequados
+writeRaster(suitable_temperatures, "temperatura_habitats_adequados.tif", overwrite = TRUE)
+
+# 14. Criar gráfico de dispersão adequabilidade vs temperatura
+amostra <- sample(nrow(dados_comparativos), min(10000, nrow(dados_comparativos)))
+df_plot <- dados_comparativos[amostra, ]
+
+plot_scatter <- ggplot(df_plot, aes(x = Temperatura, y = as.numeric(Adequabilidade))) +
+  geom_point(alpha = 0.3, color = "blue") +
+  geom_smooth(method = "lm", color = "red", se = TRUE) +
+  labs(title = "Relação entre Temperatura e Adequabilidade de Habitat",
+       x = "Temperatura Média Anual (°C)",
+       y = "Adequabilidade de Habitat") +
+  theme_minimal()
+
+print(plot_scatter)
+
+# 15. Resultado final: faixa de temperatura preferencial com notação de boxplot
+cat("\n=== FAIXA DE TEMPERATURA PREFERENCIAL DA ESPÉCIE ===\n")
+cat("Intervalo interquartil (Q1-Q3):", temp_stats$Q1, "a", temp_stats$Q3, "°C\n")
+cat("Amplitude total:", temp_stats$Minimo, "a", temp_stats$Maximo, "°C\n")
+cat("Mediana (temperatura central):", temp_stats$Mediana, "°C\n")
+cat("Média:", round(temp_stats$Media, 2), "°C\n")
+cat("Intervalo principal (5º-95º percentil):", percentis["5%"], "a", percentis["95%"], "°C\n")
+cat("Número de pixels adequados:", temp_stats$n, "\n")
+
+# 16. Boxplot adicional com anotações estatísticas
+boxplot_anotado <- ggplot(boxplot_data, aes(y = Temperatura)) +
+  geom_boxplot(fill = "lightblue", color = "darkblue", alpha = 0.7) +
+  annotate("text", x = 0.5, y = quantile(temp_values, 0.95), 
+           label = paste("95%:", round(quantile(temp_values, 0.95), 1), "°C"), 
+           color = "darkred", size = 3) +
+  annotate("text", x = 0.5, y = quantile(temp_values, 0.05), 
+           label = paste("5%:", round(quantile(temp_values, 0.05), 1), "°C"), 
+           color = "darkred", size = 3) +
+  annotate("text", x = 0.5, y = median(temp_values), 
+           label = paste("Mediana:", round(median(temp_values), 1), "°C"), 
+           color = "darkgreen", size = 4, fontface = "bold") +
+  labs(title = "Distribuição de Temperatura com Anotações Estatísticas",
+       y = "Temperatura Média Anual (°C)") +
+  theme_minimal()
+
+print(boxplot_anotado)
+ggsave("boxplot_temperatura_anotado.png", plot = boxplot_anotado, width = 10, height = 8, dpi = 300)
