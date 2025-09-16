@@ -7,7 +7,7 @@ library(ggplot2)
 library(tidyr)
 
 # 1. Carregar o raster ensemble e o raster de temperatura
-ensemble_raster <- rast("C:/Users/tunho/Documents/Vampyrum.spectrum/proj_ensemble/proj_ensemble_Vampyrum.spectrum_ensemble.tif")
+ensemble_raster <- rast(file.path(output_dir, "ensemble_projection_4layers.tif"))
 temperature_raster <- rast("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tavg_C.tif")
 
 # 2. Certificar-se que os rasters têm a mesma extensão e resolução
@@ -51,19 +51,19 @@ print(percentis)
 boxplot_data <- data.frame(Temperatura = temp_values)
 
 # Boxplot básico com ggplot2
-boxplot_temperatura <- ggplot(boxplot_data, aes(y = Temperatura)) +
-  geom_boxplot(fill = "lightblue", color = "darkblue", alpha = 0.7, 
-               outlier.color = "red", outlier.alpha = 0.5) +
-  stat_summary(fun = mean, geom = "point", shape = 18, size = 3, color = "red") +
-  labs(title = "Distribuição de Temperatura nos Habitats Adequados",
-       subtitle = paste("Threshold de adequabilidade =", threshold),
-       y = "Temperatura Média Anual (°C)",
-       x = "") +
-  theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
-        plot.subtitle = element_text(hjust = 0.5),
-        axis.text.x = element_blank(),
-        axis.ticks.x = element_blank())
+boxplot_temperatura <- ggplot(boxplot_data, aes(x = "", y = Temperatura)) +
+    geom_boxplot(fill = "lightblue", color = "darkblue", alpha = 0.7, 
+                 outlier.color = "red", outlier.alpha = 0.5) +
+    stat_summary(fun = mean, geom = "point", shape = 18, size = 3, color = "red") +
+    labs(title = "Distribuição de Temperatura nos Habitats Adequados",
+         subtitle = paste("Threshold de adequabilidade =", threshold),
+         y = "Temperatura Média Anual (°C)",
+         x = "") +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+          plot.subtitle = element_text(hjust = 0.5),
+          axis.text.x = element_blank(),
+          axis.ticks.x = element_blank())
 
 print(boxplot_temperatura)
 
