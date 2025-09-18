@@ -1,0 +1,350 @@
+######## 4 LAYERS
+## Definir diretório de saída
+output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste18_ensemble_teste15"
+
+# Criar diretório se não existir
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+## Occurrence data
+occurence <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All.csv")
+coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
+resp.var <- rep(1, 301)
+sp <- SpatialPoints(coords, proj4string = CRS("EPSG:4326"))
+
+occ_data <- data.frame(
+  species = rep("Vampyrum_spectrum", 301), 
+  lon = c(coords$x),
+  lat = c(coords$y)
+)
+
+# Salvar dados de ocorrência
+write.csv(occ_data, file.path(output_dir, "dados_ocorrencia.csv"), row.names = FALSE)
+
+
+## Environmental data
+library(raster)
+vaporpressure <- raster("C:/Users/tunho/Desktop/GAB/Mod/meanvaporpressure.tif")
+maxtemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tmax_C.tif")
+bioclimaticvar <- raster("C:/Users/tunho/Desktop/GAB/Mod/precipitacao_media_anual.tif")
+relevo <- raster("C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif")
+
+# Definir a nova extensão com os novos limites
+ext_america <- extent(-170, -26, -56, 72)
+
+# Redimensionar e recortar
+res <- 0.1  
+
+vaporpressure <- resample(crop(vaporpressure, ext_america), bioclimaticvar, method='bilinear')
+maxtemperature <- resample(crop(maxtemperature, ext_america), bioclimaticvar, method='bilinear')
+bioclimaticvar <- resample(crop(bioclimaticvar, ext_america), bioclimaticvar, method='bilinear')
+relevo <- resample(crop(relevo, ext_america), bioclimaticvar, method='bilinear')
+
+# Salvar variáveis ambientais processadas
+writeRaster(vaporpressure, file.path(output_dir, "vaporpressure_processado.tif"), overwrite = TRUE)
+writeRaster(maxtemperature, file.path(output_dir, "maxtemperature_processado.tif"), overwrite = TRUE)
+writeRaster(bioclimaticvar, file.path(output_dir, "bioclimaticvar_processado.tif"), overwrite = TRUE)
+writeRaster(relevo, file.path(output_dir, "relevo_processado.tif"), overwrite = TRUE)
+
+env_data4layers <- stack(vaporpressure, maxtemperature, bioclimaticvar, relevo)
+
+
+## BioMod2 Formated Data Object
+biomod_data4layers <- BIOMOD_FormatingData(
+  resp.var = resp.var, 
+  expl.var = env_data4layers, 
+  resp.xy = coords,
+  PA.nb.rep = 5,
+  PA.nb.absences = 700,
+  PA.strategy = "random",
+  filter.raster = FALSE,
+  resp.name = "Vampyrum.spectrum"
+)
+
+# Salvar dados formatados
+saveRDS(biomod_data4layers, file.path(output_dir, "biomod_data4layers.rds"))
+
+
+## BioMod2 Modeling
+models_4layers <- BIOMOD_Modeling(
+  biomod_data4layers,
+  modeling.id = "current", 
+  models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'), 
+  CV.strategy = 'block',  #needs to be block, due to the spatial correlation
+  prevalence = 0.5,       # Automatically set by the pseudo-absence generation
+  var.import = 3,          # N of repetitions to calculate variable importance
+  metric.eval = c('TSS', 'ROC'),
+)
+
+# Salvar modelos
+saveRDS(models_4layers, file.path(output_dir, "models_4layers.rds"))
+
+
+## Save Graphical outputs
+gg1_4layers <- bm_PlotEvalMean(models_4layers, metric.eval = c("TSS", "ROC"), dataset = "calibration", do.plot = TRUE)
+ggsave(file.path(output_dir, "eval_mean_calibration_4layers.png"), plot = gg1_4layers, width = 10, height = 8, dpi = 300)
+
+gg2_4layers <- bm_PlotEvalMean(models_4layers, metric.eval = c("TSS", "ROC"), dataset = "validation", do.plot = TRUE)
+ggsave(file.path(output_dir, "eval_mean_validation_4layers.png"), plot = gg2_4layers, width = 10, height = 8, dpi = 300)
+
+
+## Variables importance
+var_importance4 <- get_variables_importance(models_4layers)
+var_imp_df4 <- as.data.frame(var_importance4, stringsAsFactors = FALSE)
+imp_expl4 <- data.frame(
+  expl_var = var_imp_df4$expl.var,
+  var_imp = as.numeric(var_imp_df4$var.imp),
+  stringsAsFactors = FALSE
+)
+mean_imp_var_4layers <- aggregate(var_imp ~ expl_var, data = imp_expl4, FUN = mean)
+mean_imp_var_4layers <- arrange(mean_imp_var_4layers, desc(var_imp))
+
+# Salvar importância das variáveis
+write.csv(mean_imp_var_4layers, file.path(output_dir, "var_importance_4layers.csv"), row.names = FALSE)
+
+# Gráfico de importância das variáveis
+var_imp_plot <- ggplot(mean_imp_var_4layers, aes(x = reorder(expl_var, var_imp), y = var_imp)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Importância das Variáveis - 4 Layers",
+       x = "Variável",
+       y = "Importância") +
+  theme_minimal()
+
+ggsave(file.path(output_dir, "var_importance_plot_4layers.png"), plot = var_imp_plot, width = 10, height = 8, dpi = 300)
+
+
+## BioMod2 Projections
+projections_4layers <- BIOMOD_Projection(
+  bm.mod = models_4layers,
+  proj.name = "current",
+  new.env = env_data4layers,
+  models.chosen = "all"
+) 
+
+# Salvar projeções
+saveRDS(projections_4layers, file.path(output_dir, "projections_4layers.rds"))
+
+library(terra)
+library(ggplot2)
+library(tidyterra)
+
+proj_stack <- get_predictions(projections_4layers)
+proj_names <- names(proj_stack)
+
+# Loop usando terra
+for (i in 1:terra::nlyr(proj_stack)) {
+  camada <- proj_stack[[i]]
+  nome <- proj_names[i]
+  
+  out_tif <- file.path(output_dir, paste0(nome, ".tif"))
+  out_png <- file.path(output_dir, paste0(nome, ".png"))
+  
+  # Salvar raster como GeoTIFF
+  terra::writeRaster(camada, out_tif, overwrite = TRUE)
+
+  # Salvar PNG em 4K
+  p <- autoplot(camada) +
+    ggtitle(paste("Projeção -", nome)) +
+    theme_minimal(base_size = 22)
+  
+  ggsave(filename = out_png, plot = p, width = 3840, height = 2160, units = "px", dpi = 300)
+}
+
+
+
+## BioMod2 Ensemble
+ensemble_4layers <- BIOMOD_EnsembleModeling(
+  bm.mod = models_4layers,
+  models.chosen = "all",
+  em.by = "all",
+  em.algo = c('EMmean', 'EMci'),
+  metric.select = c('TSS','ROC'),
+  metric.select.thresh = c(0.5, 0.7),
+  var.import = 3,
+  seed.val = 42
+)
+
+# Salvar ensemble
+saveRDS(ensemble_4layers, file.path(output_dir, "ensemble_4layers.rds"))
+
+# Salvar avaliações do ensemble
+ensemble_eval <- get_evaluations(ensemble_4layers)
+write.csv(ensemble_eval, file.path(output_dir, "ensemble_evaluations_4layers.csv"), row.names = FALSE)
+
+# Salvar gráficos de avaliação do ensemble
+eval_mean_plot <- bm_PlotEvalMean(bm.out = ensemble_4layers, metric.eval = c('TSS', 'ROC'), dataset = 'calibration', group.by = 'algo')
+ggsave(file.path(output_dir, "ensemble_eval_mean_4layers.png"), plot = eval_mean_plot, width = 10, height = 8, dpi = 300)
+
+eval_boxplot <- bm_PlotEvalBoxplot(bm.out = ensemble_4layers, group.by = c('algo', 'algo'))
+ggsave(file.path(output_dir, "ensemble_eval_boxplot_4layers.png"), plot = eval_boxplot, width = 12, height = 8, dpi = 300)
+
+
+## Variable Importance
+EMvar_imp4 <- get_variables_importance(ensemble_4layers)
+EMvar_imp_df4 <- as.data.frame(EMvar_imp4, stringsAsFactors = FALSE)
+EMimp_expl4 <- data.frame(
+  expl_var = EMvar_imp_df4$expl.var,
+  var_imp = as.numeric(EMvar_imp_df4$var.imp),
+  stringsAsFactors = FALSE
+)
+EMmean_imp_var4 <- arrange(aggregate(var_imp ~ expl_var, data = EMimp_expl4, FUN = mean), desc(var_imp))
+
+# Salvar importância das variáveis do ensemble
+write.csv(EMmean_imp_var4, file.path(output_dir, "ensemble_var_importance_4layers.csv"), row.names = FALSE)
+
+# Gráfico de importância das variáveis do ensemble
+ensemble_var_imp_plot <- ggplot(EMmean_imp_var4, aes(x = reorder(expl_var, var_imp), y = var_imp)) +
+  geom_bar(stat = "identity", fill = "darkgreen") +
+  coord_flip() +
+  labs(title = "Importância das Variáveis - Ensemble 4 Layers",
+       x = "Variável",
+       y = "Importância") +
+  theme_minimal()
+
+ggsave(file.path(output_dir, "ensemble_var_importance_plot_4layers.png"), plot = ensemble_var_imp_plot, width = 10, height = 8, dpi = 300)
+
+
+## Ensemble projection
+myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
+  bm.em = ensemble_4layers,
+  proj.name = "ensemble_4layers",
+  models.chosen = "all",
+  new.env = env_data4layers,
+  binary.meth = NULL, # Pode definir um threshold binário se quiser
+  compress = FALSE
+)
+
+# Salvar projeção do ensemble
+saveRDS(myBiomodEnsembleProj, file.path(output_dir, "ensemble_projection_4layers.rds"))
+
+ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble_4layers", "proj_ensemble_4layers_Vampyrum.spectrum_ensemble.tif"))
+writeRaster(ensemble_raster, file.path(output_dir, "ensemble_projection_4layers.tif"), overwrite = TRUE)
+
+# Salvar plot do ensemble
+png(file.path(output_dir, "ensemble_projection_plot_4layers.png"), width = 1000, height = 800)
+plot(ensemble_raster)
+dev.off()
+
+## COM GRADE!!!
+### Aqui vai fazer o mapa com grade:
+
+library(ggplot2)
+library(tidyterra)
+library(terra)
+library(sf)
+library(rnaturalearth)
+library(ggspatial)
+library(dplyr)
+
+# Carregue o raster
+ensemble_raster <- rast(file.path(output_dir, "ensemble_projection_4layers.tif"))
+
+# Obter shapefile dos países
+countries <- ne_countries(scale = "medium", returnclass = "sf")
+
+# Definir a extensão da sua área de estudo
+x_limits <- c(-120, -30)  # Longitude
+y_limits <- c(-60, 30)    # Latitude
+
+# Método 1: Usar rótulos automáticos em graus decimais
+map_plot1 <- ggplot() +
+    geom_spatraster(data = ensemble_raster) +
+    # Contorno dos países
+    geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.5) +
+    # Preenchimento do raster
+    scale_fill_viridis_c(
+        option = "plasma",
+        na.value = NA,
+        name = "Adequabilidade\nde Habitat"
+    ) +
+    # Sistema de coordenadas com grade automática
+    coord_sf(xlim = x_limits, ylim = y_limits) +
+    # Elementos do tema e grade
+    theme_minimal() +
+    theme(
+        panel.grid.major = element_line(color = "gray30", linewidth = 0.2),
+        panel.grid.minor = element_line(color = "gray30", linewidth = 0.1),
+        panel.background = element_rect(fill = "lightblue", colour = NA),
+        legend.position = "right"
+    ) +
+    # Adicionar escala e rosa dos ventos
+    annotation_scale(
+        location = "bl",
+        width_hint = 0.2,
+        style = "ticks"
+    ) +
+    annotation_north_arrow(
+        location = "tr",
+        which_north = "true",
+        style = north_arrow_fancy_orienteering
+    ) +
+    # Rótulos dos eixos
+    labs(
+        x = "Longitude",
+        y = "Latitude",
+        title = "Projeção do Modelo - Vampyrum spectrum (4 Layers)",
+        subtitle = "Modelagem de Nicho"
+    )
+
+ggsave(file.path(output_dir, "mapa_grade_decimal_4layers.png"), plot = map_plot1, width = 12, height = 8, dpi = 300)
+
+# Método 2: Solução alternativa para GMS (mais robusta)
+map_plot2 <- ggplot() +
+    geom_spatraster(data = ensemble_raster) +
+    geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.5) +
+    scale_fill_viridis_c(
+        option = "plasma",
+        na.value = NA,
+        name = "Adequabilidade\nde Habitat"
+    ) +
+    # Usar scale_x_continuous e scale_y_continuous sem labels personalizados primeiro
+    scale_x_continuous(
+        breaks = seq(-120, -30, by = 20),
+        labels = function(x) paste0(abs(x), "°", ifelse(x < 0, "W", "E")),
+        expand = c(0, 0)
+    ) +
+    scale_y_continuous(
+        breaks = seq(-60, 30, by = 20),
+        labels = function(x) paste0(abs(x), "°", ifelse(x < 0, "S", "N")),
+        expand = c(0, 0)
+    ) +
+    coord_sf(xlim = x_limits, ylim = y_limits) +
+    theme_minimal() +
+    theme(
+        panel.grid.major = element_line(color = "gray30", linewidth = 0.2),
+        panel.background = element_rect(fill = "lightblue"),
+        legend.position = "right"
+    ) +
+    annotation_scale(location = "bl", width_hint = 0.2) +
+    annotation_north_arrow(location = "tr") +
+    labs(
+        x = "Longitude",
+        y = "Latitude",
+        title = "Projeção do Modelo - Vampyrum spectrum (4 Layers)",
+        subtitle = "Modelagem de Nicho"
+    )
+
+ggsave(file.path(output_dir, "mapa_grade_gms_4layers.png"), plot = map_plot2, width = 12, height = 8, dpi = 300)
+
+# Salvar em alta qualidade
+ggsave(file.path(output_dir, "mapa_grade_gms_teste18_4layers.png"),
+       width = 3840/300,  # Converter pixels para polegadas (300 dpi)
+       height = 2160/300, # Converter pixels para polegadas (300 dpi)
+       units = "in",      # Unidade em polegadas
+       dpi = 300,
+       bg = "white")
+
+# Mensagem final
+cat("\n=== PROCESSO CONCLUÍDO ===\n")
+cat("Todos os resultados foram salvos em:", output_dir, "\n")
+cat("Arquivos salvos:\n")
+cat("- Dados de ocorrência\n")
+cat("- Variáveis ambientais processadas\n")
+cat("- Modelos BIOMOD2\n")
+cat("- Gráficos de avaliação\n")
+cat("- Importância das variáveis\n")
+cat("- Projeções individuais\n")
+cat("- Ensemble model\n")
+cat("- Mapas finais\n")
