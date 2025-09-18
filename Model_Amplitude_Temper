@@ -177,3 +177,8 @@ boxplot_anotado <- ggplot(boxplot_data, aes(y = Temperatura)) +
 
 print(boxplot_anotado)
 ggsave("boxplot_temperatura_anotado.png", plot = boxplot_anotado, width = 10, height = 8, dpi = 300)
+
+
+
+### VOU FAZER O CODIGO ABAIXO PQ O DE CIMA DEU ERRADO:
+
