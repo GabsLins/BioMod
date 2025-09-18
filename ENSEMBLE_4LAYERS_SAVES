@@ -348,3 +348,41 @@ cat("- Importância das variáveis\n")
 cat("- Projeções individuais\n")
 cat("- Ensemble model\n")
 cat("- Mapas finais\n")
+
+
+# Para sua análise final, use:
+EMmean_imp_var4  # Variable Importance do Ensemble
+
+# Isso mostrará as variáveis mais importantes de acordo com o consenso dos modelos
+print("VARIÁVEIS MAIS IMPORTANTES (CONSENSO DO ENSEMBLE):")
+print(EMmean_imp_var4)
+
+# Você pode complementar mostrando também a variação entre modelos individuais:
+print("VARIATION ACROSS INDIVIDUAL MODELS:")
+print(mean_imp_var_4layers)
+
+
+# Gráfico comparativo entre ensemble e modelos individuais
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# Preparar dados comparativos
+comparison_data <- bind_rows(
+  mean_imp_var_4layers %>% mutate(Type = "Individual Models"),
+  EMmean_imp_var4 %>% mutate(Type = "Ensemble")
+)
+
+# Gráfico comparativo
+comparison_plot <- ggplot(comparison_data, aes(x = reorder(expl_var, var_imp), y = var_imp, fill = Type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  coord_flip() +
+  labs(title = "Comparação: Importância das Variáveis",
+       subtitle = "Modelos Individuais vs. Ensemble",
+       x = "Variável",
+       y = "Importância",
+       fill = "Tipo") +
+  theme_minimal() +
+  scale_fill_manual(values = c("Individual Models" = "steelblue", "Ensemble" = "darkgreen"))
+
+ggsave(file.path(output_dir, "comparison_var_importance.png"), plot = comparison_plot, width = 12, height = 8, dpi = 300)
