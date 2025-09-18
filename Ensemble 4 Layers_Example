@@ -16,7 +16,7 @@ occ_data <- data.frame(
 ## Environmental data
 library(raster)
 vaporpressure <- raster("C:/Users/tunho/Desktop/GAB/Mod/meanvaporpressure.tif")
-meantemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tavg_C.tif")
+maxtemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tmax_C.tif")
 bioclimaticvar <- raster("C:/Users/tunho/Desktop/GAB/Mod/precipitacao_media_anual.tif")
 relevo <- raster("C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif")
 
@@ -27,12 +27,12 @@ ext_america <- extent(-170, -26, -56, 72)
 res <- 0.1  
 
 vaporpressure <- resample(crop(vaporpressure, ext_america), bioclimaticvar, method='bilinear')
-meantemperature <- resample(crop(meantemperature, ext_america), bioclimaticvar, method='bilinear')
+maxtemperature <- resample(crop(maxtemperature, ext_america), bioclimaticvar, method='bilinear')
 bioclimaticvar <- resample(crop(bioclimaticvar, ext_america), bioclimaticvar, method='bilinear')
 relevo <- resample(crop(relevo, ext_america), bioclimaticvar, method='bilinear')
 
 
-env_data4layers <- stack(vaporpressure, meantemperature, bioclimaticvar, relevo)
+env_data4layers <- stack(vaporpressure, maxtemperature, bioclimaticvar, relevo)
 
 
 ## BioMod2 Formated Data Object
@@ -91,7 +91,7 @@ library(terra)
 library(ggplot2)
 library(tidyterra)
 
-output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste16_ensemble_teste15"
+output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste18_ensemble_teste15"
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 proj_stack <- get_predictions(projections_4layers)
