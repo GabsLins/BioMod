@@ -1,6 +1,8 @@
 # RODAR APÓS O ENSEMBLE 4 LAYERS
 # -------------------------------------------------------------------
-# CÓDIGO DE VISUALIZAÇÃO INTEGRADO - Execute APÓS o ensemble
+#install.package('patchwork') 
+#
+#CÓDIGO DE VISUALIZAÇÃO INTEGRADO - Execute APÓS o ensemble
 # -------------------------------------------------------------------
 library(terra)
 library(ggplot2)
