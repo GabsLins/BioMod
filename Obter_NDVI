@@ -1,0 +1,196 @@
+# INSTALAR PACOTES (se necessário)
+# install.packages(c("terra", "MODIStsp", "sf", "ggplot2"))
+
+# CARREGAR PACOTES
+library(terra)
+library(MODIStsp)
+library(sf)
+library(ggplot2)
+
+# DEFINIR DIRETÓRIO DE TRABALHO
+dir_base <- "C:/Users/tunho/Desktop/GAB/Mod"
+dir_ndvi <- file.path(dir_base, "NDVI")
+
+# Criar diretórios se não existirem
+dir.create(dir_ndvi, recursive = TRUE, showWarnings = FALSE)
+
+# DEFINIR ÁREA DE INTERESSE (América)
+ext_america <- c(-170, -56, -26, 72) # xmin, ymin, xmax, ymax
+
+# 1. MÉTODO PRINCIPAL - USANDO MODIStsp (RECOMENDADO)
+download_ndvi_modistsp <- function() {
+  tryCatch({
+    MODIStsp(
+      gui = FALSE,
+      selprod = "Vegetation_Indexes_16Days_1Km (M*D13A2)",
+      bandsel = "NDVI",
+      sensor = "Terra",
+      user = "seu_usuario",     # Substitua por seu usuário Earthdata
+      password = "sua_senha",   # Substitua por sua senha Earthdata
+      start_date = "2023.01.01",
+      end_date = "2023.12.31",
+      out_folder = dir_ndvi,
+      out_folder_mod = dir_ndvi,
+      bbox = ext_america,
+      spatmeth = "bbox",
+      out_format = "GTiff",
+      out_projsel = "User Defined",
+      output_proj = 4326,
+      resampling = "bilinear",
+      delete_hdf = TRUE,
+      scale_val = TRUE,
+      n_retries = 5,
+      verbose = TRUE
+    )
+    
+    return(TRUE)
+  }, error = function(e) {
+    message("Erro no download automático: ", e$message)
+    return(FALSE)
+  })
+}
+
+# 2. MÉTODO ALTERNATIVO - PROCESSAMENTO MANUAL
+processar_ndvi_manual <- function() {
+  # Criar subdiretórios organizados
+  dir_raw <- file.path(dir_ndvi, "raw_data")
+  dir_processed <- file.path(dir_ndvi, "processed")
+  dir_results <- file.path(dir_ndvi, "results")
+  
+  dir.create(dir_raw, recursive = TRUE, showWarnings = FALSE)
+  dir.create(dir_processed, recursive = TRUE, showWarnings = FALSE)
+  dir.create(dir_results, recursive = TRUE, showWarnings = FALSE)
+  
+  # Listar arquivos HDF existentes (se já baixados)
+  arquivos_hdf <- list.files(dir_raw, pattern = "\\.hdf$", full.names = TRUE)
+  
+  if(length(arquivos_hdf) > 0) {
+    # Processar cada arquivo HDF
+    ndvi_stack <- list()
+    
+    for(i in seq_along(arquivos_hdf)) {
+      # Extrair NDVI do arquivo HDF
+      ndvi_temp <- rast(arquivos_hdf[i])
+      
+      # Manter apenas banda do NDVI (geralmente a primeira)
+      if(nlyr(ndvi_temp) > 1) {
+        ndvi_temp <- ndvi_temp[[1]]  # Primeira banda geralmente é NDVI
+      }
+      
+      ndvi_stack[[i]] <- ndvi_temp
+    }
+    
+    # Empilhar todas as imagens
+    if(length(ndvi_stack) > 1) {
+      ndvi_completo <- rast(ndvi_stack)
+      
+      # Calcular média anual
+      ndvi_media <- app(ndvi_completo, mean, na.rm = TRUE)
+      
+      # Converter valores escalados (0-10000) para NDVI real (-1 a 1)
+      ndvi_real <- ndvi_media / 10000
+      
+      # Cortar para área de interesse
+      aoi_vect <- vect(ext(ext_america), crs = "EPSG:4326")
+      ndvi_cortado <- crop(ndvi_real, aoi_vect)
+      
+      # Salvar resultados
+      writeRaster(ndvi_cortado,
+                  filename = file.path(dir_results, "NDVI_media_anual_2023.tif"),
+                  overwrite = TRUE,
+                  filetype = "GTiff")
+      
+      # Salvar também como RDS para rápido carregamento no R
+      saveRDS(ndvi_cortado, file.path(dir_results, "NDVI_media_anual_2023.rds"))
+      
+      return(ndvi_cortado)
+    }
+  }
+  
+  return(NULL)
+}
+
+# 3. FUNÇÃO PARA VISUALIZAÇÃO E RELATÓRIO
+gerar_relatorio_ndvi <- function(raster_ndvi) {
+  if(!is.null(raster_ndvi)) {
+    # Estatísticas básicas
+    stats <- global(raster_ndvi, c("mean", "min", "max", "sd"), na.rm = TRUE)
+    
+    # Criar relatório
+    relatorio <- data.frame(
+      Variavel = "NDVI",
+      Media = round(stats$mean, 3),
+      Minimo = round(stats$min, 3),
+      Maximo = round(stats$max, 3),
+      Desvio_Padrao = round(stats$sd, 3),
+      Resolução = paste(res(raster_ndvi)[1], "graus"),
+      Dimensões = paste(dim(raster_ndvi)[1:2], collapse = " x ")
+    )
+    
+    # Salvar relatório
+    write.csv(relatorio, 
+              file.path(dir_ndvi, "relatorio_ndvi.csv"), 
+              row.names = FALSE)
+    
+    # Visualização
+    png(file.path(dir_ndvi, "mapa_ndvi_2023.png"), 
+        width = 10, height = 8, units = "in", res = 300)
+    
+    plot(raster_ndvi, 
+         main = "NDVI Médio Anual 2023 - América",
+         col = hcl.colors(64, "Earth"),
+         plg = list(title = "NDVI"))
+    
+    dev.off()
+    
+    return(relatorio)
+  }
+}
+
+# 4. EXECUTAR PROCESSAMENTO
+message("Iniciando download e processamento do NDVI...")
+message("Diretório de saída: ", dir_ndvi)
+
+# Tentar download automático primeiro
+success <- download_ndvi_modistsp()
+
+if(success) {
+  message("Download concluído via MODIStsp!")
+  
+  # Encontrar arquivo resultante
+  arquivos_tif <- list.files(dir_ndvi, pattern = "NDVI.*\\.tif$", full.names = TRUE)
+  
+  if(length(arquivos_tif) > 0) {
+    ndvi_final <- rast(arquivos_tif[1])
+    message("Arquivo carregado: ", basename(arquivos_tif[1]))
+  } else {
+    message("Processando dados manualmente...")
+    ndvi_final <- processar_ndvi_manual()
+  }
+} else {
+  message("Falha no download automático. Usando processamento manual...")
+  ndvi_final <- processar_ndvi_manual()
+}
+
+# 5. GERAR RELATÓRIO FINAL
+if(!is.null(ndvi_final)) {
+  relatorio <- gerar_relatorio_ndvi(ndvi_final)
+  
+  message("\n=== PROCESSAMENTO CONCLUÍDO ===")
+  message("Arquivos salvos em: ", dir_ndvi)
+  message("NDVI médio: ", round(global(ndvi_final, "mean", na.rm = TRUE), 3))
+  message("Dimensões: ", paste(dim(ndvi_final)[1:2], collapse = " x "))
+  
+  # Visualização rápida
+  plot(ndvi_final, main = "NDVI Final - América")
+  
+} else {
+  message("Não foi possível obter dados NDVI. Verifique:")
+  message("1. Conexão com internet")
+  message("2. Credenciais Earthdata (para MODIStsp)")
+  message("3. Arquivos HDF no diretório raw_data/")
+}
+
+# 6. SALVAR SESSÃO COMPLETA
+save.image(file.path(dir_ndvi, "sessao_ndvi_completa.RData"))
+message("Sessão salva em: ", file.path(dir_ndvi, "sessao_ndvi_completa.RData"))
