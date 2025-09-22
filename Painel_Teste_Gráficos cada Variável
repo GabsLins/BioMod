@@ -1,14 +1,30 @@
 # RODAR APÓS O ENSEMBLE 4 LAYERS
 # -------------------------------------------------------------------
-# NOVO CÓDIGO: PAINEL DE DIAGNÓSTICO PARA SEU ENSEMBLE DE 4 CAMADAS
+# CÓDIGO DE VISUALIZAÇÃO INTEGRADO - Execute APÓS o ensemble
 # -------------------------------------------------------------------
 library(terra)
 library(ggplot2)
 library(dplyr)
 library(patchwork)
 library(tidyr)
+library(tidyterra)
+library(sf)
+library(rnaturalearth)
 
-# 1. Defina a função para criar os painéis de diagnóstico (MESMA FUNÇÃO)
+# 1. USE OS OBJETOS EXATOS DO SEU CÓDIGO
+# Seu stack de 4 variáveis ambientais
+env_stack_4layers <- env_data4layers  # Este é o nome do seu stack original
+
+# Seu raster de adequabilidade do ensemble (o mapa final)
+ensemble_suitability <- rast(file.path(output_dir, "ensemble_projection_4layers.tif"))
+
+# Seus pontos de presença (no formato correto)
+presence_coords <- data.frame(
+  lon = occurence$longitude, 
+  lat = occurence$latitude
+)
+
+# 2. FUNÇÃO PARA CRIAR PAINÉIS DE DIAGNÓSTICO
 make_panel <- function(r, varname, pres_coords, n_bg = 1000) {
   
   # Mapa da variável ambiental com pontos de presença
@@ -23,21 +39,21 @@ make_panel <- function(r, varname, pres_coords, n_bg = 1000) {
   
   # Extrai valores para presenças e fundo
   vals_pres <- terra::extract(r, pres_coords) %>% 
-    mutate(tipo = "Presença") %>% 
-    select(all_of(varname), tipo)
+    mutate(tipo = "Presença")
+  names(vals_pres)[2] <- "valor"  # Padroniza nome da coluna
   
   set.seed(123)
   bg_points <- spatSample(r, size = n_bg, method = "random", 
                           as.points = TRUE, na.rm = TRUE)
   vals_bg <- terra::extract(r, bg_points) %>% 
-    mutate(tipo = "Fundo") %>% 
-    select(all_of(varname), tipo)
+    mutate(tipo = "Fundo")
+  names(vals_bg)[2] <- "valor"  # Padroniza nome da coluna
   
   # Combina os dados
   vals_combined <- bind_rows(vals_pres, vals_bg)
   
   # Gráfico de violino para comparar distribuições
-  violin <- ggplot(vals_combined, aes(x = tipo, y = .data[[varname]], fill = tipo)) +
+  violin <- ggplot(vals_combined, aes(x = tipo, y = valor, fill = tipo)) +
     geom_violin(trim = FALSE, alpha = 0.7) +
     geom_boxplot(width = 0.1, fill = "white", alpha = 0.5) +
     scale_fill_manual(values = c("Presença" = "tomato", "Fundo" = "steelblue")) +
@@ -49,66 +65,47 @@ make_panel <- function(r, varname, pres_coords, n_bg = 1000) {
   map_env + violin
 }
 
-# 2. Use os OBJETOS ESPECÍFICOS DO SEU ENSEMBLE DE 4 CAMADAS
-#    (Presumo que estes sejam os nomes dos objetos que você tem no ambiente)
+# 3. GERAR PAINÉIS PARA CADA UMA DAS 4 VARIÁVEIS
+cat("Gerando painéis de diagnóstico para as 4 variáveis...\n")
 
-# Seu stack de variáveis ambientais (4 camadas)
-# env_stack <- seu_stack_original_com_4_variaveis
+# Verificar nomes das variáveis no seu stack
+cat("Variáveis no stack:", names(env_stack_4layers), "\n")
 
-# Seu raster de adequabilidade final do ensemble
-# ensemble_suitability <- ensemble_map  (o mapa final que você criou)
-
-# Seus pontos de presença (ajuste o nome conforme seu objeto)
-# presence_coords <- data.frame(lon = suas_longitudes, lat = suas_latitudes)
-
-# EXEMPLO COM NOMES QUE PROVAVELMENTE VOCÊ TEM:
-# Se você seguiu o código anterior, seus objetos devem ser:
-env_stack <- env_stack  # Seu stack original com as 4 variáveis
-ensemble_suitability <- ensemble_map  # O mapa de ensemble que criamos
-presence_coords <- data.frame(lon = presences$lon, lat = presences$lat)  # Ajuste conforme seus dados
-
-# 3. Gere o painel de diagnóstico para cada uma das 4 variáveis
 variable_plots <- list()
-for(i in 1:nlyr(env_stack)) {
-  varname <- names(env_stack)[i]
-  cat("Processando variável", i, "de", nlyr(env_stack), ":", varname, "\n")
-  single_layer <- env_stack[[i]]
+for(i in 1:nlyr(env_stack_4layers)) {
+  varname <- names(env_stack_4layers)[i]
+  cat("Processando:", varname, "\n")
+  single_layer <- env_stack_4layers[[i]]
   variable_plots[[i]] <- make_panel(single_layer, varname, presence_coords, n_bg = 2000)
 }
 
-# 4. Gere o mapa final de adequabilidade do ensemble
+# 4. MAPA FINAL DE ADEQUABILIDADE DO ENSEMBLE
+cat("Gerando mapa final de adequabilidade...\n")
+
+countries <- ne_countries(scale = "medium", returnclass = "sf")
+
 suitability_map <- ggplot() +
   geom_spatraster(data = ensemble_suitability) +
+  geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.3) +
   scale_fill_viridis_c(option = "plasma", na.value = NA) +
   geom_point(data = presence_coords, aes(x = lon, y = lat), 
-             color = "red", size = 0.8, alpha = 0.9) +
-  coord_equal() +
+             color = "red", size = 1.5, alpha = 0.8) +
+  coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
   theme_minimal() +
   labs(fill = "Adequabilidade", 
-       title = "Modelo Ensemble: Mapa de Adequabilidade de Habitat",
-       subtitle = "Baseado nas 4 variáveis ambientais | Pontos vermelhos: registros de ocorrência")
+       title = "Modelo Ensemble - Vampyrum spectrum",
+       subtitle = "4 Variáveis: Pressão de Vapor, Temp. Máxima, Precipitação, Relevo",
+       caption = "Pontos vermelhos: registros de ocorrência")
 
-# 5. Organize e salve as visualizações ESPECÍFICAS para 4 variáveis
-
-# Painel de diagnóstico das 4 variáveis (organizado em 2 colunas)
-ggsave("01_Diagnostico_4_Variaveis.png", 
-       wrap_plots(variable_plots, ncol = 2), 
-       width = 16, height = 10, dpi = 300)
-
-# Mapa de adequabilidade
-ggsave("02_Mapa_Adequabilidade_Ensemble_4var.png", 
-       suitability_map, 
-       width = 12, height = 10, dpi = 300)
-
-# 6. Visualização extra: Compare a distribuição da adequabilidade
-#    nos pontos de presença vs fundo
+# 5. COMPARAÇÃO DE ADEQUABILIDADE: PRESENÇAS vs FUNDO
+cat("Gerando comparação de adequabilidade...\n")
 
 # Extrai valores de adequabilidade nas presenças
 suit_pres <- terra::extract(ensemble_suitability, presence_coords) %>% 
   mutate(tipo = "Presença") %>% 
   select(adequabilidade = 2, tipo)
 
-# Amostra pontos de fundo para comparação
+# Amostra pontos de fundo
 set.seed(123)
 bg_suit <- spatSample(ensemble_suitability, size = 2000, 
                       method = "random", as.points = TRUE, na.rm = TRUE) %>% 
@@ -116,23 +113,84 @@ bg_suit <- spatSample(ensemble_suitability, size = 2000,
   mutate(tipo = "Fundo") %>% 
   select(adequabilidade = 1, tipo)
 
-# Combina os dados
 suit_combined <- bind_rows(suit_pres, bg_suit)
 
-# Gráfico de comparação
 suitability_comparison <- ggplot(suit_combined, aes(x = tipo, y = adequabilidade, fill = tipo)) +
   geom_violin(alpha = 0.7) +
   geom_boxplot(width = 0.2, alpha = 0.5) +
   scale_fill_manual(values = c("Presença" = "tomato", "Fundo" = "steelblue")) +
   theme_minimal() +
   labs(x = "", y = "Adequabilidade de Habitat", 
-       title = "Desempenho do Modelo: Adequabilidade em Pontos de Presença vs Fundo",
-       subtitle = "Modelo deve mostrar valores mais altos nas presenças")
+       title = "Desempenho do Modelo Ensemble",
+       subtitle = "Adequabilidade nos locais de presença vs áreas de fundo")
 
-ggsave("03_Comparacao_Adequabilidade_Presenca_Fundo.png", 
-       suitability_comparison, width = 10, height = 8, dpi = 300)
+# 6. GRÁFICO DE IMPORTÂNCIA DAS VARIÁVEIS (DO SEU ENSEMBLE)
+cat("Gerando gráfico de importância das variáveis...\n")
 
-cat("\n✅ Processo concluído! Arquivos gerados:\n")
-cat("• 01_Diagnostico_4_Variaveis.png: Diagnóstico das 4 variáveis ambientais\n")
-cat("• 02_Mapa_Adequabilidade_Ensemble_4var.png: Mapa final do ensemble\n")
-cat("• 03_Comparacao_Adequabilidade_Presenca_Fundo.png: Validação do modelo\n")
+# Use os dados de importância que você já calculou
+importance_plot <- ggplot(EMmean_imp_var4, aes(x = reorder(expl_var, var_imp), y = var_imp)) +
+  geom_bar(stat = "identity", fill = "darkgreen", alpha = 0.8) +
+  geom_text(aes(label = round(var_imp, 3)), hjust = -0.2, size = 3) +
+  coord_flip() +
+  theme_minimal() +
+  labs(x = "Variável", y = "Importância Relativa", 
+       title = "Importância das Variáveis - Ensemble Final",
+       subtitle = "Consenso entre todos os algoritmos")
+
+# 7. SALVAR TODOS OS GRÁFICOS
+cat("Salvando gráficos...\n")
+
+# Painel com diagnóstico das 4 variáveis
+ggsave(file.path(output_dir, "01_Diagnostico_4_Variaveis.png"), 
+       wrap_plots(variable_plots, ncol = 2), 
+       width = 16, height = 12, dpi = 300)
+
+# Mapa final de adequabilidade
+ggsave(file.path(output_dir, "02_Mapa_Adequabilidade_Ensemble.png"), 
+       suitability_map, 
+       width = 14, height = 10, dpi = 300)
+
+# Comparação de adequabilidade
+ggsave(file.path(output_dir, "03_Comparacao_Adequabilidade.png"), 
+       suitability_comparison, 
+       width = 10, height = 8, dpi = 300)
+
+# Importância das variáveis
+ggsave(file.path(output_dir, "04_Importancia_Variaveis_Ensemble.png"), 
+       importance_plot, 
+       width = 10, height = 6, dpi = 300)
+
+# 8. FIGURA RESUMO FINAL (Todos os elementos juntos)
+final_summary_plot <- (suitability_map | importance_plot) / 
+  (wrap_plots(variable_plots[[1]], variable_plots[[2]]) | 
+     wrap_plots(variable_plots[[3]], variable_plots[[4]])) /
+  suitability_comparison +
+  plot_annotation(title = "Resumo Completo - Modelagem de Vampyrum spectrum",
+                  subtitle = "Ensemble com 4 Variáveis Ambientais",
+                  theme = theme_minimal())
+
+ggsave(file.path(output_dir, "05_Resumo_Completo.png"), 
+       final_summary_plot, 
+       width = 18, height = 20, dpi = 300)
+
+# 9. RELATÓRIO FINAL
+cat("\n" + rep("=", 60) + "\n")
+cat("✅ VISUALIZAÇÃO CONCLUÍDA!\n")
+cat(rep("=", 60) + "\n")
+cat("Arquivos gerados em:", output_dir, "\n\n")
+cat("📊 GRÁFICOS CRIADOS:\n")
+cat("• 01_Diagnostico_4_Variaveis.png - Diagnóstico ambiental completo\n")
+cat("• 02_Mapa_Adequabilidade_Ensemble.png - Mapa final do modelo\n")
+cat("• 03_Comparacao_Adequabilidade.png - Validação do modelo\n")
+cat("• 04_Importancia_Variaveis_Ensemble.png - Importância das variáveis\n")
+cat("• 05_Resumo_Completo.png - Figura resumo para apresentações\n\n")
+
+cat("🔍 VARIÁVEIS ANALISADAS:\n")
+for(i in 1:nlyr(env_stack_4layers)) {
+  cat("  ", i, "-", names(env_stack_4layers)[i], "\n")
+}
+
+cat("\n📈 IMPORTÂNCIA DAS VARIÁVEIS (ORDEM):\n")
+print(EMmean_imp_var4)
+
+cat("\n" + rep("=", 60) + "\n")
