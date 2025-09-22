@@ -25,7 +25,7 @@ download_ndvi_modistsp <- function() {
       selprod = "Vegetation_Indexes_16Days_1Km (M*D13A2)",
       bandsel = "NDVI",
       sensor = "Terra",
-      user = "seu_usuario",     # Substitua por seu usuário Earthdata
+      user = "seu_usuario",     # Substitua por seu usuário Earthdata, verifique aqui: https://urs.earthdata.nasa.gov/oauth/authorize?response_type=code&client_id=OLpAZlE4HqIOMr0TYqg7UQ&redirect_uri=https%3A%2F%2Fsearchprodapi-1167262027.auto.earthdatacloud.nasa.gov%2Furs_callback&state=https%3A%2F%2Fsearch.earthdata.nasa.gov%2Fsearch%2Fgranules%3Fp%3DC1748066515-LPCLOUD%26pg%255B0%255D%255Bv%255D%3Df%26pg%255B0%255D%255Bgsk%255D%3D-start_date%26tl%3D1354699012.906%25215%2521%2521%26ee%3Dprod
       password = "sua_senha",   # Substitua por sua senha Earthdata
       start_date = "2023.01.01",
       end_date = "2023.12.31",
