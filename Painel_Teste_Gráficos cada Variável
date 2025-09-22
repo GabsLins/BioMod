@@ -1,5 +1,6 @@
 # RODAR APÓS O ENSEMBLE 4 LAYERS
-# NOVO CÓDIGO: PAINEL DE DIAGNÓSTICO E VISUALIZAÇÃO
+# -------------------------------------------------------------------
+# NOVO CÓDIGO: PAINEL DE DIAGNÓSTICO PARA SEU ENSEMBLE DE 4 CAMADAS
 # -------------------------------------------------------------------
 library(terra)
 library(ggplot2)
@@ -7,7 +8,7 @@ library(dplyr)
 library(patchwork)
 library(tidyr)
 
-# 1. Defina a função para criar os painéis de diagnóstico
+# 1. Defina a função para criar os painéis de diagnóstico (MESMA FUNÇÃO)
 make_panel <- function(r, varname, pres_coords, n_bg = 1000) {
   
   # Mapa da variável ambiental com pontos de presença
@@ -25,7 +26,7 @@ make_panel <- function(r, varname, pres_coords, n_bg = 1000) {
     mutate(tipo = "Presença") %>% 
     select(all_of(varname), tipo)
   
-  set.seed(123) # Para reproducibilidade
+  set.seed(123)
   bg_points <- spatSample(r, size = n_bg, method = "random", 
                           as.points = TRUE, na.rm = TRUE)
   vals_bg <- terra::extract(r, bg_points) %>% 
@@ -48,18 +49,34 @@ make_panel <- function(r, varname, pres_coords, n_bg = 1000) {
   map_env + violin
 }
 
-# 2. Gere o painel de diagnóstico para cada variável ambiental
-#    (Usando suas variáveis originais 'myExpl' e presenças 'presence_coords')
+# 2. Use os OBJETOS ESPECÍFICOS DO SEU ENSEMBLE DE 4 CAMADAS
+#    (Presumo que estes sejam os nomes dos objetos que você tem no ambiente)
+
+# Seu stack de variáveis ambientais (4 camadas)
+# env_stack <- seu_stack_original_com_4_variaveis
+
+# Seu raster de adequabilidade final do ensemble
+# ensemble_suitability <- ensemble_map  (o mapa final que você criou)
+
+# Seus pontos de presença (ajuste o nome conforme seu objeto)
+# presence_coords <- data.frame(lon = suas_longitudes, lat = suas_latitudes)
+
+# EXEMPLO COM NOMES QUE PROVAVELMENTE VOCÊ TEM:
+# Se você seguiu o código anterior, seus objetos devem ser:
+env_stack <- env_stack  # Seu stack original com as 4 variáveis
+ensemble_suitability <- ensemble_map  # O mapa de ensemble que criamos
+presence_coords <- data.frame(lon = presences$lon, lat = presences$lat)  # Ajuste conforme seus dados
+
+# 3. Gere o painel de diagnóstico para cada uma das 4 variáveis
 variable_plots <- list()
-for(i in 1:nlyr(myExpl)) {
-  varname <- names(myExpl)[i]
-  cat("Processando:", varname, "\n")
-  single_layer <- myExpl[[i]]
-  variable_plots[[i]] <- make_panel(single_layer, varname, presence_coords)
+for(i in 1:nlyr(env_stack)) {
+  varname <- names(env_stack)[i]
+  cat("Processando variável", i, "de", nlyr(env_stack), ":", varname, "\n")
+  single_layer <- env_stack[[i]]
+  variable_plots[[i]] <- make_panel(single_layer, varname, presence_coords, n_bg = 2000)
 }
 
-# 3. Gere o mapa final de adequabilidade do ensemble
-#    (Usando o raster 'ensemble_suitability' que você já projetou)
+# 4. Gere o mapa final de adequabilidade do ensemble
 suitability_map <- ggplot() +
   geom_spatraster(data = ensemble_suitability) +
   scale_fill_viridis_c(option = "plasma", na.value = NA) +
@@ -69,40 +86,53 @@ suitability_map <- ggplot() +
   theme_minimal() +
   labs(fill = "Adequabilidade", 
        title = "Modelo Ensemble: Mapa de Adequabilidade de Habitat",
-       subtitle = "Pontos vermelhos: registros de ocorrência")
+       subtitle = "Baseado nas 4 variáveis ambientais | Pontos vermelhos: registros de ocorrência")
 
-# 4. Organize e salve TODAS as visualizações
+# 5. Organize e salve as visualizações ESPECÍFICAS para 4 variáveis
 
-# Salve o painel de variáveis (pode ser grande, ajuste o tamanho)
-ggsave("01_Diagnostico_Variaveis.png", 
+# Painel de diagnóstico das 4 variáveis (organizado em 2 colunas)
+ggsave("01_Diagnostico_4_Variaveis.png", 
        wrap_plots(variable_plots, ncol = 2), 
-       width = 16, height = 4 * ceiling(length(variable_plots)/2), 
-       dpi = 300)
+       width = 16, height = 10, dpi = 300)
 
-# Salve o mapa de adequabilidade
-ggsave("02_Mapa_Adequabilidade_Ensemble.png", 
+# Mapa de adequabilidade
+ggsave("02_Mapa_Adequabilidade_Ensemble_4var.png", 
        suitability_map, 
-       width = 10, height = 8, dpi = 300)
+       width = 12, height = 10, dpi = 300)
 
-# Opcional: Gere um resumo das importâncias das variáveis (se disponível)
-# Nota: Isso depende de o BIOMOD2 ter calculado a importância.
-var_import <- get_variables_importance(myBiomodEM)
-if(!is.null(var_import)) {
-  var_import_df <- as.data.frame(t(apply(var_import, c(1,2), mean)))
-  var_import_df$variavel <- rownames(var_import_df)
-  var_import_long <- pivot_longer(var_import_df, -variavel, names_to = "modelo", values_to = "importancia")
-  
-  importance_plot <- ggplot(var_import_long, aes(x = reorder(variavel, importancia, mean), y = importancia)) +
-    geom_boxplot(fill = "lightblue") +
-    coord_flip() +
-    theme_minimal() +
-    labs(x = "Variável", y = "Importância Relativa Média", 
-         title = "Importância das Variáveis no Modelo Ensemble")
-  
-  ggsave("03_Importancia_Variaveis.png", importance_plot, width = 10, height = 6, dpi = 300)
-}
+# 6. Visualização extra: Compare a distribuição da adequabilidade
+#    nos pontos de presença vs fundo
 
-cat("\nProcesso concluído! Verifique os arquivos salvos:\n")
-cat("- 01_Diagnostico_Variaveis.png: Painel de diagnóstico ambiental\n")
-cat("- 02_Mapa_Adequabilidade_Ensemble.png: Mapa final de habitat adequado\n")
-cat("- 03_Importancia_Variaveis.png: Gráfico de importância (se disponível)\n")
+# Extrai valores de adequabilidade nas presenças
+suit_pres <- terra::extract(ensemble_suitability, presence_coords) %>% 
+  mutate(tipo = "Presença") %>% 
+  select(adequabilidade = 2, tipo)
+
+# Amostra pontos de fundo para comparação
+set.seed(123)
+bg_suit <- spatSample(ensemble_suitability, size = 2000, 
+                      method = "random", as.points = TRUE, na.rm = TRUE) %>% 
+  as.data.frame() %>% 
+  mutate(tipo = "Fundo") %>% 
+  select(adequabilidade = 1, tipo)
+
+# Combina os dados
+suit_combined <- bind_rows(suit_pres, bg_suit)
+
+# Gráfico de comparação
+suitability_comparison <- ggplot(suit_combined, aes(x = tipo, y = adequabilidade, fill = tipo)) +
+  geom_violin(alpha = 0.7) +
+  geom_boxplot(width = 0.2, alpha = 0.5) +
+  scale_fill_manual(values = c("Presença" = "tomato", "Fundo" = "steelblue")) +
+  theme_minimal() +
+  labs(x = "", y = "Adequabilidade de Habitat", 
+       title = "Desempenho do Modelo: Adequabilidade em Pontos de Presença vs Fundo",
+       subtitle = "Modelo deve mostrar valores mais altos nas presenças")
+
+ggsave("03_Comparacao_Adequabilidade_Presenca_Fundo.png", 
+       suitability_comparison, width = 10, height = 8, dpi = 300)
+
+cat("\n✅ Processo concluído! Arquivos gerados:\n")
+cat("• 01_Diagnostico_4_Variaveis.png: Diagnóstico das 4 variáveis ambientais\n")
+cat("• 02_Mapa_Adequabilidade_Ensemble_4var.png: Mapa final do ensemble\n")
+cat("• 03_Comparacao_Adequabilidade_Presenca_Fundo.png: Validação do modelo\n")
