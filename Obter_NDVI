@@ -194,3 +194,6 @@ if(!is.null(ndvi_final)) {
 # 6. SALVAR SESSÃO COMPLETA
 save.image(file.path(dir_ndvi, "sessao_ndvi_completa.RData"))
 message("Sessão salva em: ", file.path(dir_ndvi, "sessao_ndvi_completa.RData"))
+
+
+## O raster .tif, ficará na pasta: C:/Users/tunho/Desktop/GAB/Mod/NDVI/results/NDVI_media_anual_2023.tif
