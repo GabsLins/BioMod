@@ -1,0 +1,160 @@
+library(terra)
+library(sf)
+library(dplyr)
+
+# Definir o caminho base correto
+base_path <- "C:/Users/tunho/Desktop/GAB/Mod"
+
+# Lista de subpastas onde estão os arquivos .tif
+folders <- c("bioclimaticvar", "maxtemperature", "meantemperature", 
+             "mintemperature", "meanvaporpressure", "wind", "relevo", "NDVI")
+
+# Verificar quais pastas existem
+existing_folders <- folders[file.exists(file.path(base_path, folders))]
+print("Pastas encontradas:")
+print(existing_folders)
+
+if(length(existing_folders) == 0) {
+  # Se não encontrar as subpastas, procurar arquivos .tif diretamente na pasta base
+  raster_files <- list.files(base_path, pattern = "\\.tif$", full.names = TRUE)
+  print("Procurando arquivos .tif diretamente na pasta base...")
+} else {
+  # Listar arquivos .tif nas subpastas
+  raster_files <- unlist(lapply(existing_folders, function(f) {
+    list.files(file.path(base_path, f), 
+               pattern = "\\.tif$", full.names = TRUE)
+  }))
+}
+
+# Verificar se os arquivos foram encontrados
+print("Arquivos raster encontrados:")
+print(raster_files)
+print(paste("Total de arquivos:", length(raster_files)))
+
+if(length(raster_files) == 0) {
+  stop("Nenhum arquivo .tif encontrado. Verifique os caminhos e pastas.")
+}
+
+# Carregar como um stack (SpatRaster)
+env_stack <- rast(raster_files)
+
+# Verificar as camadas carregadas
+print("Camadas no stack:")
+print(names(env_stack))
+
+# Carregar pontos de ocorrência (ajuste o nome do arquivo se necessário)
+points_file <- file.path(base_path, "Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec.csv")
+
+if(!file.exists(points_file)) {
+  # Tentar encontrar o arquivo CSV na pasta
+  csv_files <- list.files(base_path, pattern = "\\.csv$", full.names = TRUE)
+  if(length(csv_files) > 0) {
+    points_file <- csv_files[1]
+    print(paste("Usando arquivo CSV encontrado:", basename(points_file)))
+  } else {
+    stop("Arquivo CSV de pontos não encontrado.")
+  }
+}
+
+points_df <- read.csv(points_file)
+
+# Verificar estrutura dos pontos
+print("Estrutura dos dados de pontos:")
+str(points_df)
+print(paste("Número de pontos:", nrow(points_df)))
+
+# Verificar se as colunas de coordenadas existem
+coord_columns <- c("longitude", "latitude")
+if(all(coord_columns %in% names(points_df))) {
+  print("Colunas de coordenadas encontradas: longitude e latitude")
+} else {
+  # Tentar encontrar colunas alternativas
+  possible_coords <- c("lon", "lat", "x", "y", "decimalLongitude", "decimalLatitude")
+  found_coords <- possible_coords[possible_coords %in% names(points_df)]
+  
+  if(length(found_coords) >= 2) {
+    coord_columns <- found_coords[1:2]
+    print(paste("Usando colunas alternativas:", paste(coord_columns, collapse = " e ")))
+  } else {
+    stop("Colunas de coordenadas não encontradas. Verifique o arquivo CSV.")
+  }
+}
+
+# Converter para objeto espacial (SpatVector)
+points_vect <- vect(points_df, geom = coord_columns, crs = "EPSG:4326")
+
+# Extrair valores dos rasters nos pontos
+points_env <- extract(env_stack, points_vect)
+
+# Juntar com coordenadas e dados originais
+result <- cbind(points_df, points_env[, -1, drop = FALSE])  # remove a coluna ID automática
+
+# Verificar resultado
+print("Estrutura da tabela final:")
+str(result)
+print(paste("Dimensões da tabela final:", nrow(result), "x", ncol(result)))
+
+# Salvar o resultado
+output_file <- file.path(base_path, "pointsample10.csv")
+write.csv(result, output_file, row.names = FALSE)
+
+print(paste("Tabela salva com sucesso em:", output_file))
+
+# Estatísticas básicas das variáveis extraídas
+if(ncol(result) > ncol(points_df)) {
+  env_vars <- result[, (ncol(points_df) + 1):ncol(result)]
+  print("Resumo das variáveis ambientais extraídas:")
+  print(summary(env_vars))
+}
+
+# Mensagem final
+print("Processamento concluído com sucesso!")
+print(paste("Arquivo gerado:", output_file))
+
+### ETAPA2
+
+pointsample <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/pointsample10.csv")
+
+# Garantir que estamos usando colunas numéricas
+numeric_data <- pointsample[, sapply(pointsample, is.numeric)]
+
+# Correlação de Pearson
+cor_matrix <- cor(numeric_data, method = 'pearson', use = 'complete.obs')
+
+# Encontrar correlações > 0.7 (excluindo auto-correlação)
+high_corr <- which(cor_matrix > 0.7 & lower.tri(cor_matrix), arr.ind = TRUE)
+
+print("Variáveis com correlação > 0.7:")
+for(i in 1:nrow(high_corr)) {
+  var1 <- rownames(cor_matrix)[high_corr[i,1]]
+  var2 <- colnames(cor_matrix)[high_corr[i,2]]
+  cor_value <- cor_matrix[high_corr[i,1], high_corr[i,2]]
+  print(paste(var1, "-", var2, ":", round(cor_value, 3)))
+}
+
+
+### ETAPA3
+###### CORRELATION TEST - VERSÃO SIMPLIFICADA ######
+
+pointsample <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/pointsample10.csv")
+
+# Verificar se existem pelo menos 10 colunas
+if(ncol(pointsample) >= 10) {
+  # Calcular correlação apenas com colunas numéricas
+  pointsample_numeric <- pointsample[, sapply(pointsample[1:10], is.numeric)]
+  
+  # Correlação de Pearson
+  cor_test <- cor(pointsample_numeric, method = 'pearson', use = 'complete.obs')
+  
+  # Identificar variáveis correlacionadas (> 0.7)
+  correlated <- cor_test > 0.7 & cor_test < 1  # Exclui diagonal principal
+  
+  print("Matriz de correlação:")
+  print(round(cor_test, 3))
+  
+  print("Pares correlacionados (r > 0.7):")
+  print(which(correlated, arr.ind = TRUE))
+  
+} else {
+  print(paste("O arquivo tem apenas", ncol(pointsample), "colunas. Ajuste a seleção."))
+}
