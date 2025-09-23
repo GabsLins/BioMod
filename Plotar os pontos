@@ -1,7 +1,6 @@
 ### ---- 1. Checagem e instalação de pacotes ----
 
-
-packages <- c("raster", "sp", "ggplot2", "sf", "rnaturalearth", "rnaturalearthdata")
+packages <- c("terra", "ggplot2", "sf", "rnaturalearth", "rnaturalearthdata")
 
 installed <- packages %in% rownames(installed.packages())
 if (any(!installed)) {
@@ -12,52 +11,73 @@ lapply(packages, library, character.only = TRUE)
 
 ### ---- 2. Carregar tabela de pontos ----
 
-
 tabela <- "C:/Users/tunho/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All.csv"
-occ <- read.csv(tabela, header = TRUE)
+occ <- read.csv(tabela, header = TRUE, fileEncoding = "UTF-8")
 
-# Converter para sf (ajuste nomes de colunas se necessário)
-pts_sf <- st_as_sf(occ, coords = c("longitude", "latitude"), crs = 4326)
+# Verificar nomes das colunas
+print("Nomes das colunas:")
+print(names(occ))
+
+# Ajustar nomes das colunas (use os nomes corretos do seu arquivo)
+# Se os nomes forem diferentes, ajuste aqui:
+pts_sf <- st_as_sf(occ, coords = c("longitude", "latitude"), crs = 4326, na.fail = FALSE)
 
 ### ---- 3. Shapefile da América ----
 
-
 world <- ne_countries(scale = "medium", returnclass = "sf")
-america <- world[world$continent %in% c("North America","South America"), ]
+america <- world[world$continent %in% c("North America", "South America"), ]
 
-# Definir extensão da América
-ext_america <- st_bbox(c(xmin = -170, xmax = -26, ymin = -56, ymax = 72), crs = st_crs(4326))
+# Definir extensão da América (usando st_bbox corretamente)
+ext_america <- st_bbox(c(xmin = -170, ymin = -56, xmax = -26, ymax = 72), crs = st_crs(4326))
 
-# Recortar pontos e mapa
-pts_america <- st_crop(pts_sf, ext_america)
+# Recortar pontos e mapa (com tratamento de erro)
 america_crop <- st_crop(america, ext_america)
 
-### ---- 4. Plot ----
+# Recortar pontos - verificar se há pontos dentro da extensão
+pts_america <- tryCatch({
+  st_crop(pts_sf, ext_america)
+}, error = function(e) {
+  message("Aviso: Nenhum ponto dentro da extensão especificada. Usando todos os pontos.")
+  pts_sf
+})
 
+### ---- 4. Plot CORRIGIDO ----
 
 ggplot() +
   # Base da América
-  geom_sf(data = america_crop, fill = "gray95", color = "gray40") +
+  geom_sf(data = america_crop, fill = "gray95", color = "gray40", size = 0.3) +
   
   # Pontos de ocorrência
   geom_sf(data = pts_america, color = "red", size = 2, alpha = 0.7) +
   
-  # Borda zebrada da área de recorte
-  annotation_sf(data = st_as_sfc(ext_america),
-                fill = NA, color = "black", size = 1, linetype = "dashed") +
+  # Borda da área de recorte (CORREÇÃO: usar geom_sf em vez de annotation_sf)
+  geom_sf(data = st_as_sfc(ext_america), 
+          fill = NA, color = "black", size = 1, linetype = "dashed") +
   
-  # Coordenadas fixas (a cada 10°)
-  coord_sf(xlim = c(-170, -26), ylim = c(-56, 72), expand = FALSE,
-           xbreaks = seq(-170, -20, 10),
-           ybreaks = seq(-60, 70, 10)) +
+  # Coordenadas fixas
+  coord_sf(xlim = c(-170, -26), ylim = c(-56, 72), expand = FALSE) +
+  
+  # Grade personalizada (alternativa aos xbreaks/ybreaks que não funcionam bem com coord_sf)
+  scale_x_continuous(breaks = seq(-170, -20, 20)) +
+  scale_y_continuous(breaks = seq(-60, 70, 20)) +
   
   # Aparência do mapa
   theme_minimal(base_size = 12) +
   theme(
-    panel.grid.major = element_line(color = "gray70", linetype = "dotted"),
-    panel.border = element_rect(color = "black", fill = NA, size = 1.2, linetype = "dashed")
+    panel.grid.major = element_line(color = "gray80", linetype = "dotted", size = 0.3),
+    panel.background = element_rect(fill = "lightblue1", color = NA),
+    plot.title = element_text(hjust = 0.5, face = "bold")
   ) +
   labs(
-    title = "Ocorrências de *Vampyrum spectrum* na América",
-    x = "Longitude", y = "Latitude"
+    title = "Ocorrências de Vampyrum spectrum na América",
+    x = "Longitude", 
+    y = "Latitude"
   )
+
+### ---- 5. Informações adicionais ----
+
+# Verificar resultados
+print(paste("Número total de pontos:", nrow(pts_sf)))
+print(paste("Número de pontos na América:", nrow(pts_america)))
+print("Extensão da área de estudo:")
+print(ext_america)
