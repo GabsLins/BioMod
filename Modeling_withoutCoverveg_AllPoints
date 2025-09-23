@@ -48,6 +48,7 @@ mintemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tmin_C.tif"
 vaporpressure <- raster("C:/Users/tunho/Desktop/GAB/Mod/meanvaporpressure.tif")
 wind <- raster("C:/Users/tunho/Desktop/GAB/Mod/wind_media_anual.tif")
 relevo <- raster("C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif")
+NDVI <- raster("C:/Users/tunho/Desktop/GAB/Mod/NDVI/NDVI_america.tif")
 
 # Definir a nova extensão com os novos limites
 ext_america <- extent(-170, -26, -56, 72)
@@ -62,8 +63,9 @@ mintemperature <- resample(crop(mintemperature, ext_america), bioclimaticvar, me
 vaporpressure <- resample(crop(vaporpressure, ext_america), bioclimaticvar, method='bilinear')
 wind <- resample(crop(wind, ext_america), bioclimaticvar, method='bilinear')
 relevo <- resample(crop(relevo, ext_america), bioclimaticvar, method='bilinear')
+NDVI <- resample(crop(NDVI, ext_america), bioclimaticvar, method='bilinear')
 
-env_data <- stack (bioclimaticvar, maxtemperature, meantemperature, mintemperature, vaporpressure, wind, relevo)
+env_data <- stack (bioclimaticvar, maxtemperature, meantemperature, mintemperature, vaporpressure, wind, relevo, NDVI)
 
 
 
