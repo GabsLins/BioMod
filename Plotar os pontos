@@ -13,7 +13,7 @@ lapply(packages, library, character.only = TRUE)
 ### ---- 2. Carregar tabela de pontos ----
 
 
-tabela <- "C:/Users/tunho/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_Rev2.csv"
+tabela <- "C:/Users/tunho/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All.csv"
 occ <- read.csv(tabela, header = TRUE)
 
 # Converter para sf (ajuste nomes de colunas se necessário)
