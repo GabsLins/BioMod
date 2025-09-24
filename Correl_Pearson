@@ -18,6 +18,7 @@ raster_files <- c(
   wind = "C:/Users/tunho/Desktop/GAB/Mod/wind_media_anual.tif",
   relevo = "C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif",
   NDVI = "C:/Users/tunho/Desktop/GAB/Mod/NDVI/NDVI_america.tif"
+  LAI = "C:/Users/tunho/Desktop/GAB/Mod/LAI.tif"
 )
 
 # Verificar quais arquivos existem
@@ -76,7 +77,7 @@ print("Stack final preparado:")
 print(env_stack)
 
 # Carregar pontos de ocorrência
-points_file <- file.path(base_path, "Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec.csv")
+points_file <- file.path(base_path, "Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All.csv")
 
 if(!file.exists(points_file)) {
   csv_files <- list.files(base_path, pattern = "\\.csv$", full.names = TRUE)
@@ -117,18 +118,18 @@ result <- points_df
 result[, names(env_stack)] <- points_env[, -1]  # Adiciona as variáveis com os nomes corretos
 
 # Salvar o resultado
-output_file <- file.path(base_path, "pointsample10.csv")
+output_file <- file.path(base_path, "pointsample11.csv")
 write.csv(result, output_file, row.names = FALSE)
 
 print(paste("Tabela salva com sucesso em:", output_file))
 
 ### ETAPA 2 - ANÁLISE DE CORRELAÇÃO E SALVAR CSV DA MATRIZ
 
-pointsample <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/pointsample10.csv")
+pointsample <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/pointsample11.csv")
 
 # Selecionar as 8 variáveis específicas
 variaveis_desejadas <- c("bioclimaticvar", "maxtemperature", "meantemperature", 
-                         "mintemperature", "meanvaporpressure", "wind", "relevo", "NDVI")
+                         "mintemperature", "meanvaporpressure", "wind", "relevo", "NDVI", "LAI")
 
 variaveis_presentes <- variaveis_desejadas[variaveis_desejadas %in% names(pointsample)]
 
@@ -143,7 +144,7 @@ if(length(variaveis_presentes) > 1) {
   print(round(cor_matrix, 3))
   
   # SALVAR A MATRIZ DE CORRELAÇÃO COMO CSV
-  matriz_cor_file <- file.path(base_path, "matriz_correlacao.csv")
+  matriz_cor_file <- file.path(base_path, "matriz_correlacao_correl_11.csv")
   write.csv(cor_matrix, matriz_cor_file, row.names = TRUE)
   print(paste("Matriz de correlação salva em:", matriz_cor_file))
   
@@ -166,7 +167,7 @@ if(length(variaveis_presentes) > 1) {
       Correlacao = cor_matrix[high_corr]
     )
     
-    correlated_file <- file.path(base_path, "pares_correlacionados.csv")
+    correlated_file <- file.path(base_path, "pares_correlacionados_correl_11.csv")
     write.csv(correlated_pairs, correlated_file, row.names = FALSE)
     print(paste("Pares correlacionados salvos em:", correlated_file))
     
