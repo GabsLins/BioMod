@@ -49,6 +49,7 @@ vaporpressure <- raster("C:/Users/tunho/Desktop/GAB/Mod/meanvaporpressure.tif")
 wind <- raster("C:/Users/tunho/Desktop/GAB/Mod/wind_media_anual.tif")
 relevo <- raster("C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif")
 NDVI <- raster("C:/Users/tunho/Desktop/GAB/Mod/NDVI/NDVI_america.tif")
+LAI <- raster("C:/Users/tunho/Desktop/GAB/Mod/LAI")
 
 # Definir a nova extensão com os novos limites
 ext_america <- extent(-170, -26, -56, 72)
@@ -64,8 +65,9 @@ vaporpressure <- resample(crop(vaporpressure, ext_america), bioclimaticvar, meth
 wind <- resample(crop(wind, ext_america), bioclimaticvar, method='bilinear')
 relevo <- resample(crop(relevo, ext_america), bioclimaticvar, method='bilinear')
 NDVI <- resample(crop(NDVI, ext_america), bioclimaticvar, method='bilinear')
+LAI <- resample(crop(LAI, ext_america), bioclimaticvar, method='bilinear')
 
-env_data <- stack (bioclimaticvar, maxtemperature, meantemperature, mintemperature, vaporpressure, wind, relevo, NDVI)
+env_data <- stack (bioclimaticvar, maxtemperature, meantemperature, mintemperature, vaporpressure, wind, relevo, NDVI, LAI)
 
 
 
@@ -148,7 +150,7 @@ library(terra)
 library(ggplot2)
 library(tidyterra)
 
-output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste19_semCover_rep5_700PA_FALSE_RFspecific"
+output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste20_semCover_rep5_700PA_FALSE_RFspecific"
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 proj_stack <- get_predictions(projections)
