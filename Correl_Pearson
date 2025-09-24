@@ -17,7 +17,7 @@ raster_files <- c(
   meanvaporpressure = "C:/Users/tunho/Desktop/GAB/Mod/meanvaporpressure.tif",
   wind = "C:/Users/tunho/Desktop/GAB/Mod/wind_media_anual.tif",
   relevo = "C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif",
-  NDVI = "C:/Users/tunho/Desktop/GAB/Mod/NDVI/NDVI_america.tif"
+  NDVI = "C:/Users/tunho/Desktop/GAB/Mod/NDVI/NDVI_america.tif",
   LAI = "C:/Users/tunho/Desktop/GAB/Mod/LAI.tif"
 )
 
