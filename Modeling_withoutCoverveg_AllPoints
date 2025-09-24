@@ -49,7 +49,7 @@ vaporpressure <- raster("C:/Users/tunho/Desktop/GAB/Mod/meanvaporpressure.tif")
 wind <- raster("C:/Users/tunho/Desktop/GAB/Mod/wind_media_anual.tif")
 relevo <- raster("C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif")
 NDVI <- raster("C:/Users/tunho/Desktop/GAB/Mod/NDVI/NDVI_america.tif")
-LAI <- raster("C:/Users/tunho/Desktop/GAB/Mod/LAI")
+LAI <- raster("C:/Users/tunho/Desktop/GAB/Mod/LAI.tif")
 
 # Definir a nova extensão com os novos limites
 ext_america <- extent(-170, -26, -56, 72)
