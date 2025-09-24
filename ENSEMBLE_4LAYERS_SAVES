@@ -1,6 +1,6 @@
 ######## 4 LAYERS
 ## Definir diretório de saída
-output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste18_ensemble_teste15"
+output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste21_ensemble_teste20"
 
 # Criar diretório se não existir
 if (!dir.exists(output_dir)) {
@@ -26,9 +26,9 @@ write.csv(occ_data, file.path(output_dir, "dados_ocorrencia.csv"), row.names = F
 ## Environmental data
 library(raster)
 vaporpressure <- raster("C:/Users/tunho/Desktop/GAB/Mod/meanvaporpressure.tif")
-maxtemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tmax_C.tif")
-bioclimaticvar <- raster("C:/Users/tunho/Desktop/GAB/Mod/precipitacao_media_anual.tif")
 relevo <- raster("C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif")
+bioclimaticvar <- raster("C:/Users/tunho/Desktop/GAB/Mod/precipitacao_media_anual.tif")
+wind <- raster("C:/Users/tunho/Desktop/GAB/Mod/wind_media_anual.tif")
 
 # Definir a nova extensão com os novos limites
 ext_america <- extent(-170, -26, -56, 72)
@@ -37,9 +37,9 @@ ext_america <- extent(-170, -26, -56, 72)
 res <- 0.1  
 
 vaporpressure <- resample(crop(vaporpressure, ext_america), bioclimaticvar, method='bilinear')
-maxtemperature <- resample(crop(maxtemperature, ext_america), bioclimaticvar, method='bilinear')
-bioclimaticvar <- resample(crop(bioclimaticvar, ext_america), bioclimaticvar, method='bilinear')
 relevo <- resample(crop(relevo, ext_america), bioclimaticvar, method='bilinear')
+bioclimaticvar <- resample(crop(bioclimaticvar, ext_america), bioclimaticvar, method='bilinear')
+wind <- resample(crop(wind, ext_america), bioclimaticvar, method='bilinear')
 
 # Salvar variáveis ambientais processadas
 writeRaster(vaporpressure, file.path(output_dir, "vaporpressure_processado.tif"), overwrite = TRUE)
@@ -47,7 +47,7 @@ writeRaster(maxtemperature, file.path(output_dir, "maxtemperature_processado.tif
 writeRaster(bioclimaticvar, file.path(output_dir, "bioclimaticvar_processado.tif"), overwrite = TRUE)
 writeRaster(relevo, file.path(output_dir, "relevo_processado.tif"), overwrite = TRUE)
 
-env_data4layers <- stack(vaporpressure, maxtemperature, bioclimaticvar, relevo)
+env_data4layers <- stack(vaporpressure, relevo, bioclimaticvar, wind)
 
 
 ## BioMod2 Formated Data Object
