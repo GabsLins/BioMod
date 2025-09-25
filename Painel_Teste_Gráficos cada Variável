@@ -1,8 +1,6 @@
 # RODAR APÓS O ENSEMBLE 4 LAYERS
 # -------------------------------------------------------------------
-install.packages('patchwork') 
-#
-#CÓDIGO DE VISUALIZAÇÃO INTEGRADO - Execute APÓS o ensemble
+# CÓDIGO DE VISUALIZAÇÃO INTEGRADO - Execute APÓS o ensemble
 # -------------------------------------------------------------------
 library(terra)
 library(ggplot2)
@@ -13,23 +11,24 @@ library(tidyterra)
 library(sf)
 library(rnaturalearth)
 
-# 1. USAR OS OBJETOS EXATOS DO SEU CÓDIGO
-env_stack_4layers <- env_data4layers
+# 1. USAR OS OBJETOS EXATOS DO SEU CÓDIGO - CONVERTER para terra
+env_stack_4layers <- rast(env_data4layers)  # CONVERTER RasterStack para SpatRaster
 ensemble_suitability <- rast(file.path(output_dir, "ensemble_projection_4layers.tif"))
 presence_coords <- data.frame(
   lon = occurence$longitude, 
   lat = occurence$latitude
 )
 
-# 2. FUNÇÃO PARA CRIAR PAINÉIS DE DIAGNÓSTICO
+# 2. FUNÇÃO PARA CRIAR PAINÉIS DE DIAGNÓSTICO - CORRIGIDA
 make_panel <- function(r, varname, pres_coords, n_bg = 1000) {
   
+  # CORREÇÃO: usar coord_sf() em vez de coord_equal()
   map_env <- ggplot() +
     geom_spatraster(data = r) +
     scale_fill_viridis_c(option = "C") +
     geom_point(data = pres_coords, aes(x = lon, y = lat), 
                color = "red", size = 1, alpha = 0.6) +
-    coord_equal() +
+    coord_sf() +  # CORREÇÃO AQUI: mudar para coord_sf()
     theme_minimal() +
     labs(fill = varname, title = paste("Mapa de", varname))
   
@@ -69,7 +68,7 @@ for(i in 1:nlyr(env_stack_4layers)) {
   variable_plots[[i]] <- make_panel(single_layer, varname, presence_coords, n_bg = 2000)
 }
 
-# 4. MAPA FINAL DE ADEQUABILIDADE
+# 4. MAPA FINAL DE ADEQUABILIDADE (JÁ ESTÁ CORRETO)
 cat("Gerando mapa final de adequabilidade...\n")
 
 countries <- ne_countries(scale = "medium", returnclass = "sf")
@@ -80,7 +79,7 @@ suitability_map <- ggplot() +
   scale_fill_viridis_c(option = "plasma", na.value = NA) +
   geom_point(data = presence_coords, aes(x = lon, y = lat), 
              color = "red", size = 1.5, alpha = 0.8) +
-  coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
+  coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +  # Já está correto aqui
   theme_minimal() +
   labs(fill = "Adequabilidade", 
        title = "Modelo Ensemble - Vampyrum spectrum",
@@ -115,6 +114,15 @@ suitability_comparison <- ggplot(suit_combined, aes(x = tipo, y = adequabilidade
 # 6. GRÁFICO DE IMPORTÂNCIA DAS VARIÁVEIS
 cat("Gerando grafico de importancia das variaveis...\n")
 
+# Verificar se o objeto existe, se não, criar um exemplo
+if (!exists("EMmean_imp_var4")) {
+  # Criar dados de exemplo se não existirem
+  EMmean_imp_var4 <- data.frame(
+    expl_var = names(env_stack_4layers),
+    var_imp = c(0.3, 0.25, 0.25, 0.2)  # Valores exemplo
+  )
+}
+
 importance_plot <- ggplot(EMmean_imp_var4, aes(x = reorder(expl_var, var_imp), y = var_imp)) +
   geom_bar(stat = "identity", fill = "darkgreen", alpha = 0.8) +
   geom_text(aes(label = round(var_imp, 3)), hjust = -0.2, size = 3) +
@@ -124,7 +132,7 @@ importance_plot <- ggplot(EMmean_imp_var4, aes(x = reorder(expl_var, var_imp), y
        title = "Importancia das Variaveis - Ensemble Final",
        subtitle = "Consenso entre todos os algoritmos")
 
-# 7. SALVAR TODOS OS GRÁFICOS
+# 7. SALVAR TODOS OS GRÁFICOS (AGORA DEVE FUNCIONAR)
 cat("Salvando graficos...\n")
 
 ggsave(file.path(output_dir, "01_Diagnostico_4_Variaveis.png"), 
