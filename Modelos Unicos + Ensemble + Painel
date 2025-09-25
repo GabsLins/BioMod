@@ -1,6 +1,42 @@
 ## TODAS AS VARIAVEIS
 
-install.packages(c("biomod2", "sp", "raster", "dplyr"))
+# ============================
+# CARREGAR TODOS OS PACOTES
+# ============================
+
+# Pacotes principais
+library(biomod2)
+library(sp)
+library(raster)
+library(dplyr)
+
+# Pacotes de modelagem
+library(ENMeval)
+library(randomForest)
+
+# Pacotes de visualização
+library(tidyterra)
+library(ggplot2)
+
+# Pacotes de análise espacial
+library(terra)
+library(sf)
+library(patchwork)
+library(rnaturalearth)
+library(rnaturalearthdata)
+
+# ============================
+# VERIFICAÇÃO DE CARREGAMENTO
+# ============================
+
+cat("Pacotes carregados com sucesso:\n")
+for(pkg in required_packages) {
+  if(pkg %in% .packages()) {
+    cat("✓", pkg, "\n")
+  } else {
+    cat("✗", pkg, "FALHOU\n")
+  }
+}
 
 ##Biomod2 teste
 #25/09/2025
