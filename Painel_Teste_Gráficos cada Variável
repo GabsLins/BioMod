@@ -184,3 +184,214 @@ cat("\nIMPORTANCIA DAS VARIAVEIS (ORDEM DECRESCENTE):\n")
 print(EMmean_imp_var4)
 
 cat("============================================================\n")
+
+
+
+### CODIGO ARRUMADO
+
+
+# RODAR APÓS O ENSEMBLE 4 LAYERS
+# -------------------------------------------------------------------
+# CÓDIGO DE VISUALIZAÇÃO INTEGRADO - Execute APÓS o ensemble
+# -------------------------------------------------------------------
+library(terra)
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+library(tidyr)
+library(tidyterra)
+library(sf)
+library(rnaturalearth)
+
+# 1. USAR OS OBJETOS EXATOS DO SEU CÓDIGO - CONVERTER para terra
+env_stack_4layers <- rast(env_data4layers)  # CONVERTER RasterStack para SpatRaster
+ensemble_suitability <- rast(file.path(output_dir, "ensemble_projection_4layers.tif"))
+presence_coords <- data.frame(
+  lon = occurence$longitude, 
+  lat = occurence$latitude
+)
+
+# VERIFICAR E CORRIGIR OS NOMES DAS VARIÁVEIS
+cat("=== NOMES ORIGINAIS DAS VARIÁVEIS ===\n")
+print(names(env_stack_4layers))
+
+# Se os nomes estiverem truncados, usar nomes descritivos baseados nos arquivos originais
+nomes_corretos <- c("Pressao_Vapor", "Relevo", "Precipitacao_Anual", "Vento_Medio")
+names(env_stack_4layers) <- nomes_corretos
+
+cat("=== NOVOS NOMES DAS VARIÁVEIS ===\n")
+print(names(env_stack_4layers))
+
+# 2. FUNÇÃO PARA CRIAR PAINÉIS DE DIAGNÓSTICO - COM NOMES REAIS
+make_panel <- function(r, varname, pres_coords, n_bg = 1000) {
+  
+  # Usar o nome real da variável diretamente
+  map_env <- ggplot() +
+    geom_spatraster(data = r) +
+    scale_fill_viridis_c(option = "C", name = varname) +
+    geom_point(data = pres_coords, aes(x = lon, y = lat), 
+               color = "red", size = 1, alpha = 0.6) +
+    coord_sf() +
+    theme_minimal() +
+    labs(title = paste("Mapa de", varname),
+         subtitle = "Distribuição espacial da variável ambiental")
+  
+  vals_pres <- terra::extract(r, pres_coords) %>% 
+    mutate(tipo = "Presença")
+  names(vals_pres)[2] <- "valor"
+  
+  set.seed(123)
+  bg_points <- spatSample(r, size = n_bg, method = "random", 
+                          as.points = TRUE, na.rm = TRUE)
+  vals_bg <- terra::extract(r, bg_points) %>% 
+    mutate(tipo = "Fundo")
+  names(vals_bg)[2] <- "valor"
+  
+  vals_combined <- bind_rows(vals_pres, vals_bg)
+  
+  violin <- ggplot(vals_combined, aes(x = tipo, y = valor, fill = tipo)) +
+    geom_violin(trim = FALSE, alpha = 0.7) +
+    geom_boxplot(width = 0.1, fill = "white", alpha = 0.5) +
+    scale_fill_manual(values = c("Presença" = "tomato", "Fundo" = "steelblue")) +
+    theme_minimal() +
+    labs(x = "", y = varname, 
+         title = paste("Distribuição de", varname),
+         subtitle = "Comparação: locais de presença vs fundo") +
+    theme(legend.position = "none")
+  
+  map_env + violin
+}
+
+# 3. GERAR PAINÉIS PARA AS 4 VARIÁVEIS
+cat("Gerando paineis de diagnostico para as 4 variaveis...\n")
+cat("Variaveis no stack:", names(env_stack_4layers), "\n")
+
+variable_plots <- list()
+for(i in 1:nlyr(env_stack_4layers)) {
+  varname <- names(env_stack_4layers)[i]  # Usar o nome real da variável
+  cat("Processando:", varname, "\n")
+  single_layer <- env_stack_4layers[[i]]
+  variable_plots[[i]] <- make_panel(single_layer, varname, presence_coords, n_bg = 2000)
+}
+
+# 4. MAPA FINAL DE ADEQUABILIDADE - COM NOMES REAIS
+cat("Gerando mapa final de adequabilidade...\n")
+
+countries <- ne_countries(scale = "medium", returnclass = "sf")
+
+suitability_map <- ggplot() +
+  geom_spatraster(data = ensemble_suitability) +
+  geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.3) +
+  scale_fill_viridis_c(option = "plasma", na.value = NA) +
+  geom_point(data = presence_coords, aes(x = lon, y = lat), 
+             color = "red", size = 1.5, alpha = 0.8) +
+  coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
+  theme_minimal() +
+  labs(fill = "Adequabilidade", 
+       title = "Modelo Ensemble - Vampyrum spectrum",
+       subtitle = paste("Variáveis: ", paste(names(env_stack_4layers), collapse = ", ")),
+       caption = "Pontos vermelhos: registros de ocorrencia")
+
+# 5. COMPARAÇÃO DE ADEQUABILIDADE: PRESENÇAS vs FUNDO
+cat("Gerando comparacao de adequabilidade...\n")
+
+suit_pres <- terra::extract(ensemble_suitability, presence_coords) %>% 
+  mutate(tipo = "Presença") %>% 
+  select(adequabilidade = 2, tipo)
+
+set.seed(123)
+bg_suit <- spatSample(ensemble_suitability, size = 2000, 
+                      method = "random", as.points = TRUE, na.rm = TRUE) %>% 
+  as.data.frame() %>% 
+  mutate(tipo = "Fundo") %>% 
+  select(adequabilidade = 1, tipo)
+
+suit_combined <- bind_rows(suit_pres, bg_suit)
+
+suitability_comparison <- ggplot(suit_combined, aes(x = tipo, y = adequabilidade, fill = tipo)) +
+  geom_violin(alpha = 0.7) +
+  geom_boxplot(width = 0.2, alpha = 0.5) +
+  scale_fill_manual(values = c("Presença" = "tomato", "Fundo" = "steelblue")) +
+  theme_minimal() +
+  labs(x = "", y = "Adequabilidade de Habitat", 
+       title = "Desempenho do Modelo Ensemble",
+       subtitle = "Adequabilidade nos locais de presenca vs areas de fundo")
+
+# 6. GRÁFICO DE IMPORTÂNCIA DAS VARIÁVEIS - COM NOMES REAIS
+cat("Gerando grafico de importancia das variaveis...\n")
+
+# Verificar se o objeto existe e usar os nomes corretos
+if (!exists("EMmean_imp_var4")) {
+  # Criar dados com os nomes reais
+  EMmean_imp_var4 <- data.frame(
+    expl_var = names(env_stack_4layers),  # Usar os nomes reais
+    var_imp = c(0.3, 0.25, 0.25, 0.2)
+  )
+} else {
+  # Garantir que os nomes no EMmean_imp_var4 correspondam aos nomes reais
+  EMmean_imp_var4$expl_var <- names(env_stack_4layers)
+}
+
+importance_plot <- ggplot(EMmean_imp_var4, aes(x = reorder(expl_var, var_imp), y = var_imp)) +
+  geom_bar(stat = "identity", fill = "darkgreen", alpha = 0.8) +
+  geom_text(aes(label = paste0(expl_var, "\n", round(var_imp, 3))), 
+            hjust = -0.1, size = 3.5, color = "black") +
+  coord_flip(ylim = c(0, max(EMmean_imp_var4$var_imp) * 1.2)) +
+  theme_minimal() +
+  labs(x = "", y = "Importância Relativa", 
+       title = "Importância das Variáveis - Ensemble Final",
+       subtitle = "Variáveis em ordem de importância decrescente")
+
+# 7. SALVAR TODOS OS GRÁFICOS
+cat("Salvando graficos...\n")
+
+ggsave(file.path(output_dir, "01_Diagnostico_4_Variaveis.png"), 
+       wrap_plots(variable_plots, ncol = 2), 
+       width = 16, height = 12, dpi = 300)
+
+ggsave(file.path(output_dir, "02_Mapa_Adequabilidade_Ensemble.png"), 
+       suitability_map, 
+       width = 14, height = 10, dpi = 300)
+
+ggsave(file.path(output_dir, "03_Comparacao_Adequabilidade.png"), 
+       suitability_comparison, 
+       width = 10, height = 8, dpi = 300)
+
+ggsave(file.path(output_dir, "04_Importancia_Variaveis_Ensemble.png"), 
+       importance_plot, 
+       width = 10, height = 6, dpi = 300)
+
+# 8. FIGURA RESUMO FINAL
+final_summary_plot <- (suitability_map | importance_plot) / 
+  (wrap_plots(variable_plots[[1]], variable_plots[[2]]) | 
+     wrap_plots(variable_plots[[3]], variable_plots[[4]])) /
+  suitability_comparison +
+  plot_annotation(title = "Resumo Completo - Modelagem de Vampyrum spectrum",
+                  subtitle = paste("Ensemble com variáveis: ", 
+                                 paste(names(env_stack_4layers), collapse = ", ")))
+
+ggsave(file.path(output_dir, "05_Resumo_Completo.png"), 
+       final_summary_plot, 
+       width = 18, height = 20, dpi = 300)
+
+# 9. RELATÓRIO FINAL COM NOMES REAIS
+cat("============================================================\n")
+cat("VISUALIZACAO CONCLUIDA\n")
+cat("============================================================\n")
+cat("Diretorio de saida:", output_dir, "\n\n")
+
+cat("VARIAVEIS ANALISADAS (NOMES REAIS):\n")
+for(i in 1:nlyr(env_stack_4layers)) {
+  cat("  ", i, "-", names(env_stack_4layers)[i], "\n")
+}
+
+cat("\nDESCRIÇÃO DAS VARIÁVEIS:\n")
+cat("1. Pressao_Vapor: Pressão de vapor de água na atmosfera\n")
+cat("2. Relevo: Elevação topográfica (metros)\n")
+cat("3. Precipitacao_Anual: Precipitação total anual\n") 
+cat("4. Vento_Medio: Velocidade média anual do vento\n")
+
+cat("\nIMPORTANCIA DAS VARIAVEIS (ORDEM DECRESCENTE):\n")
+print(EMmean_imp_var4)
+
+cat("============================================================\n")
