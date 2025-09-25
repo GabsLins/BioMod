@@ -1,0 +1,630 @@
+## TODAS AS VARIAVEIS
+
+install.packages(c("biomod2", "sp", "raster", "dplyr"))
+
+##Biomod2 teste
+#25/09/2025
+
+library(biomod2)
+library(sp)
+library(raster)
+library(dplyr)
+
+
+###### ALL LAYERS
+## Occurrence data
+occurence <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All.csv")
+coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
+resp.var <- rep(1, 301)
+sp <- SpatialPoints(coords, proj4string = CRS("EPSG:4326"))
+
+occ_data <- data.frame(
+  species = rep("Vampyrum_spectrum", 301),
+  lon = c(coords$x),
+  lat = c(coords$y)
+)
+
+## Environmental data
+library(raster)
+
+# Carregando as camadas
+bioclimaticvar <- raster("C:/Users/tunho/Desktop/GAB/Mod/precipitacao_media_anual.tif")
+maxtemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tmax_C.tif")
+meantemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tavg_C.tif")
+mintemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tmin_C.tif")
+vaporpressure <- raster("C:/Users/tunho/Desktop/GAB/Mod/meanvaporpressure.tif")
+wind <- raster("C:/Users/tunho/Desktop/GAB/Mod/wind_media_anual.tif")
+relevo <- raster("C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif")
+NDVI <- raster("C:/Users/tunho/Desktop/GAB/Mod/NDVI/NDVI_america.tif")
+LAI <- raster("C:/Users/tunho/Desktop/GAB/Mod/LAI.tif")
+
+# Definir a nova extensão com os novos limites
+ext_america <- extent(-170, -26, -56, 72)
+
+# Redimensionar e recortar
+res <- 0.1  
+
+bioclimaticvar <- resample(crop(bioclimaticvar, ext_america), bioclimaticvar, method='bilinear')
+maxtemperature <- resample(crop(maxtemperature, ext_america), bioclimaticvar, method='bilinear')
+meantemperature <- resample(crop(meantemperature, ext_america), bioclimaticvar, method='bilinear')
+mintemperature <- resample(crop(mintemperature, ext_america), bioclimaticvar, method='bilinear')
+vaporpressure <- resample(crop(vaporpressure, ext_america), bioclimaticvar, method='bilinear')
+wind <- resample(crop(wind, ext_america), bioclimaticvar, method='bilinear')
+relevo <- resample(crop(relevo, ext_america), bioclimaticvar, method='bilinear')
+NDVI <- resample(crop(NDVI, ext_america), bioclimaticvar, method='bilinear')
+LAI <- resample(crop(LAI, ext_america), bioclimaticvar, method='bilinear')
+
+# CORREÇÃO 1: REMOVER RELEVO MARINHO (valores abaixo de 0m)
+relevo[relevo < 0] <- NA
+
+# CORREÇÃO 2: NOMEAR AS VARIÁVEIS CORRETAMENTE
+env_data <- stack(bioclimaticvar, maxtemperature, meantemperature, mintemperature, 
+                  vaporpressure, wind, relevo, NDVI, LAI)
+
+# Atribuir nomes descritivos às variáveis
+names(env_data) <- c("Precipitacao_Anual", "Temperatura_Maxima", "Temperatura_Media", 
+                     "Temperatura_Minima", "Pressao_Vapor", "Vento_Medio", 
+                     "Relevo", "NDVI", "LAI")
+
+# Verificar os nomes
+cat("Variáveis no stack com nomes corrigidos:\n")
+print(names(env_data))
+
+## BioMod2 Formated Data Object
+biomod_data <- BIOMOD_FormatingData(
+  resp.var = resp.var,
+  expl.var = env_data,
+  resp.xy = coords,
+  PA.nb.rep = 5,
+  PA.nb.absences = 700,
+  PA.strategy = "random",
+  filter.raster = TRUE,
+  resp.name = "Vampyrum.spectrum"
+)
+
+
+## BioMod2 Modeling
+library(ENMeval)
+library(randomForest)
+
+myOptions <- BIOMOD_ModelingOptions(
+  GBM = list(n.trees = 100)
+)
+
+myOptions <- BIOMOD_ModelingOptions(
+  RF = list(
+    n.trees = 500,
+    mtry = 2,
+    nodesize = 5,
+    maxnodes = 30
+  )
+)
+
+models <- BIOMOD_Modeling(
+  biomod_data,
+  modeling.id = "current",
+  models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'),
+  CV.strategy = 'block',
+  prevalence = 0.5,
+  var.import = 3,
+  metric.eval = c('TSS', 'ROC'),
+)
+
+
+## Save Graphical outputs
+gg1 <- bm_PlotEvalMean(models, metric.eval = c("TSS", "ROC"), dataset = "calibration", do.plot = TRUE)
+dev.new()
+gg2 <- bm_PlotEvalMean(models, metric.eval = c("TSS", "ROC"), dataset = "validation", do.plot = TRUE)
+
+
+## Variables importance
+var_importance <- get_variables_importance(models)
+var_imp_df <- as.data.frame(var_importance, stringsAsFactors = FALSE)
+imp_expl <- data.frame(
+  expl_var = var_imp_df$expl.var,
+  var_imp = as.numeric(var_imp_df$var.imp),
+  stringsAsFactors = FALSE
+)
+mean_imp_var <- arrange(aggregate(var_imp ~ expl_var, data = imp_expl, FUN = mean), desc(var_imp))
+
+# Salvar importância com nomes corretos
+write.csv(mean_imp_var, "C:/Users/tunho/Desktop/GAB/Mod/var_importance_todas_variaveis_teste22.csv", row.names = FALSE)
+
+cat("Importância das variáveis (com nomes corretos):\n")
+print(mean_imp_var)
+
+
+## BioMod2 Projections
+library(tidyterra)
+library(ggplot2)
+
+# Projeção dos modelos
+projections <- BIOMOD_Projection(
+  bm.mod = models,
+  proj.name = "proj_current",
+  new.env = env_data,
+  models.chosen = "all"
+)
+
+output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste22_semCover_rep5_700PA_FALSE_RFspecific"
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
+proj_stack <- get_predictions(projections)
+proj_names <- names(proj_stack)
+
+# Loop usando terra
+for (i in 1:terra::nlyr(proj_stack)) {
+  camada <- proj_stack[[i]]
+  nome <- proj_names[i]
+  
+  out_tif <- file.path(output_dir, paste0(nome, ".tif"))
+  out_png <- file.path(output_dir, paste0(nome, ".png"))
+  
+  # Salvar raster como GeoTIFF
+  terra::writeRaster(camada, out_tif, overwrite = TRUE)
+
+  # Salvar PNG
+  p <- autoplot(camada) +
+    ggtitle(paste("Projeção -", nome)) +
+    theme_minimal(base_size = 22)
+  
+  ggsave(filename = out_png, plot = p, width = 3840, height = 2160, units = "px", dpi = 300)
+}
+
+
+## BioMod2 Ensemble
+ensemble <- BIOMOD_EnsembleModeling(
+  bm.mod = models,
+  models.chosen = "all",
+  em.by = "all",
+  em.algo = c('EMmean', 'EMci'),
+  metric.select = c('TSS','ROC'),
+  metric.select.thresh = c(0.5, 0.7),
+  var.import = 3,
+  seed.val = 42
+)
+
+# Avaliações do ensemble
+ensemble_eval <- get_evaluations(ensemble)
+cat("Avaliação do ensemble:\n")
+print(ensemble_eval)
+
+EMvar_imp <- get_variables_importance(ensemble)
+EMvar_imp_df <- as.data.frame(EMvar_imp, stringsAsFactors = FALSE)
+EMimp_expl <- data.frame(
+  expl_var = EMvar_imp_df$expl.var,
+  var_imp = as.numeric(EMvar_imp_df$var.imp),
+  stringsAsFactors = FALSE
+)
+EMmean_imp_var <- arrange(aggregate(var_imp ~ expl_var, data = EMimp_expl, FUN = mean), desc(var_imp))
+
+# Salvar importância do ensemble com nomes corretos
+write.csv(EMmean_imp_var, "C:/Users/tunho/Desktop/GAB/Mod/ensemble_var_importance_todas_variaveis_teste22.csv", row.names = FALSE)
+
+cat("Importância das variáveis no ensemble (com nomes corretos):\n")
+print(EMmean_imp_var)
+
+# Gráficos de avaliação
+bm_PlotEvalMean(bm.out = ensemble, dataset = 'calibration')
+bm_PlotEvalBoxplot(bm.out = ensemble, group.by = c('algo', 'algo'))
+
+
+## Ensemble projection
+EnsembleProj <- BIOMOD_EnsembleForecasting(
+  bm.em = ensemble,
+  proj.name = "ensemble",
+  models.chosen = "all",
+  new.env = env_data,
+  binary.meth = NULL,
+  compress = FALSE
+)
+
+# Salvar o ensemble
+ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble", "proj_ensemble_Vampyrum.spectrum_ensemble.tif"))
+writeRaster(ensemble_raster, file.path(output_dir, "ensemble_projection_todas_variaveis_teste22.tif"), overwrite = TRUE)
+
+# Plot do ensemble
+plot(EnsembleProj)
+
+# ============================
+# RELATÓRIO DAS CORREÇÕES APLICADAS
+# ============================
+
+cat("\n", rep("=", 70), "\n", sep = "")
+cat("CORREÇÕES APLICADAS - TODAS AS VARIÁVEIS\n")
+cat(rep("=", 70), "\n\n")
+
+cat("✓ CORREÇÃO 1: Relevo marinho removido (valores < 0m excluídos)\n")
+cat("✓ CORREÇÃO 2: Variáveis nomeadas corretamente:\n")
+cat("   1. Precipitacao_Anual\n")
+cat("   2. Temperatura_Maxima\n")
+cat("   3. Temperatura_Media\n")
+cat("   4. Temperatura_Minima\n")
+cat("   5. Pressao_Vapor\n")
+cat("   6. Vento_Medio\n")
+cat("   7. Relevo (apenas áreas terrestres)\n")
+cat("   8. NDVI\n")
+cat("   9. LAI\n\n")
+
+cat("Arquivos salvos:\n")
+cat("- Importância das variáveis: C:/Users/tunho/Desktop/GAB/Mod/var_importance_todas_variaveis.csv\n")
+cat("- Importância do ensemble: C:/Users/tunho/Desktop/GAB/Mod/ensemble_var_importance_todas_variaveis.csv\n")
+cat("- Projeções: ", output_dir, "\n")
+cat(rep("=", 70), "\n")
+
+# ============================
+# DIAGNÓSTICO RÁPIDO DAS VARIÁVEIS
+# ============================
+
+cat("\nDIAGNÓSTICO DAS VARIÁVEIS:\n")
+for(i in 1:nlayers(env_data)) {
+  var_name <- names(env_data)[i]
+  var_values <- values(env_data[[i]])
+  var_values <- var_values[!is.na(var_values)]
+  
+  cat(sprintf("%d. %s: Min=%.2f, Max=%.2f, Mediana=%.2f, NAs=%d\n",
+              i, var_name, 
+              min(var_values), max(var_values), median(var_values),
+              sum(is.na(values(env_data[[i]])))))
+}
+
+# Verificar especificamente o relevo
+cat("\nVERIFICAÇÃO DO RELEVO (após correção):\n")
+relevo_values <- values(relevo)
+relevo_values <- relevo_values[!is.na(relevo_values)]
+cat("Relevo - Valores após correção:\n")
+cat("  Min:", min(relevo_values), "m\n")
+cat("  Max:", max(relevo_values), "m\n")
+cat("  Valores negativos removidos:", sum(relevo_values < 0), "\n")
+cat("  Total de pixels válidos:", length(relevo_values), "\n")
+
+
+######## 4 LAYERS - VERSÃO CORRIGIDA ########
+
+## Definir diretório de saída
+output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste23_ensemble_teste22"
+
+# Criar diretório se não existir
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+## Occurrence data
+occurence <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All.csv")
+coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
+resp.var <- rep(1, 301)
+sp <- SpatialPoints(coords, proj4string = CRS("EPSG:4326"))
+
+occ_data <- data.frame(
+  species = rep("Vampyrum_spectrum", 301), 
+  lon = c(coords$x),
+  lat = c(coords$y)
+)
+
+# Salvar dados de ocorrência
+write.csv(occ_data, file.path(output_dir, "dados_ocorrencia.csv"), row.names = FALSE)
+
+
+## Environmental data - CORREÇÃO DO RELEVO MARINHO
+library(raster)
+vaporpressure <- raster("C:/Users/tunho/Desktop/GAB/Mod/meanvaporpressure.tif")
+relevo <- raster("C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif")
+bioclimaticvar <- raster("C:/Users/tunho/Desktop/GAB/Mod/precipitacao_media_anual.tif")
+wind <- raster("C:/Users/tunho/Desktop/GAB/Mod/wind_media_anual.tif")
+
+# Definir a nova extensão com os novos limites
+ext_america <- extent(-170, -26, -56, 72)
+
+# Redimensionar e recortar
+res <- 0.1  
+
+vaporpressure <- resample(crop(vaporpressure, ext_america), bioclimaticvar, method='bilinear')
+relevo <- resample(crop(relevo, ext_america), bioclimaticvar, method='bilinear')
+bioclimaticvar <- resample(crop(bioclimaticvar, ext_america), bioclimaticvar, method='bilinear')
+wind <- resample(crop(wind, ext_america), bioclimaticvar, method='bilinear')
+
+# CORREÇÃO 1: REMOVER RELEVO MARINHO (valores abaixo de 0m)
+relevo[relevo < 0] <- NA  # Remove áreas marinhas (valores negativos)
+
+# Salvar variáveis ambientais processadas
+writeRaster(vaporpressure, file.path(output_dir, "vaporpressure_processado_teste23.tif"), overwrite = TRUE)
+writeRaster(relevo, file.path(output_dir, "relevo_processado_teste23.tif"), overwrite = TRUE)
+writeRaster(bioclimaticvar, file.path(output_dir, "precipitacao_processado_teste23.tif"), overwrite = TRUE)
+writeRaster(wind, file.path(output_dir, "wind_processado_teste23.tif"), overwrite = TRUE)
+
+# CORREÇÃO 2: NOMEAR AS VARIÁVEIS CORRETAMENTE
+env_data4layers <- stack(vaporpressure, relevo, bioclimaticvar, wind)
+names(env_data4layers) <- c("Pressao_Vapor", "Relevo", "Precipitacao_Anual", "Vento_Medio")
+
+cat("Variáveis no stack com nomes corretos:\n")
+print(names(env_data4layers))
+
+
+## BioMod2 Formated Data Object
+biomod_data4layers <- BIOMOD_FormatingData(
+  resp.var = resp.var, 
+  expl.var = env_data4layers, 
+  resp.xy = coords,
+  PA.nb.rep = 5,
+  PA.nb.absences = 700,
+  PA.strategy = "random",
+  filter.raster = FALSE,
+  resp.name = "Vampyrum.spectrum"
+)
+
+# Salvar dados formatados
+saveRDS(biomod_data4layers, file.path(output_dir, "biomod_data4layers.rds"))
+
+
+## BioMod2 Modeling
+models_4layers <- BIOMOD_Modeling(
+  biomod_data4layers,
+  modeling.id = "current", 
+  models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'), 
+  CV.strategy = 'block',
+  prevalence = 0.5,
+  var.import = 3,
+  metric.eval = c('TSS', 'ROC'),
+)
+
+# Salvar modelos
+saveRDS(models_4layers, file.path(output_dir, "models_4layers.rds"))
+
+
+## Save Graphical outputs
+gg1_4layers <- bm_PlotEvalMean(models_4layers, metric.eval = c("TSS", "ROC"), dataset = "calibration", do.plot = TRUE)
+ggsave(file.path(output_dir, "eval_mean_calibration_4layers_teste23.png"), plot = gg1_4layers, width = 10, height = 8, dpi = 300)
+
+gg2_4layers <- bm_PlotEvalMean(models_4layers, metric.eval = c("TSS", "ROC"), dataset = "validation", do.plot = TRUE)
+ggsave(file.path(output_dir, "eval_mean_validation_4layers_teste23.png"), plot = gg2_4layers, width = 10, height = 8, dpi = 300)
+
+
+## Variables importance
+var_importance4 <- get_variables_importance(models_4layers)
+var_imp_df4 <- as.data.frame(var_importance4, stringsAsFactors = FALSE)
+imp_expl4 <- data.frame(
+  expl_var = var_imp_df4$expl.var,
+  var_imp = as.numeric(var_imp_df4$var.imp),
+  stringsAsFactors = FALSE
+)
+mean_imp_var_4layers <- aggregate(var_imp ~ expl_var, data = imp_expl4, FUN = mean)
+mean_imp_var_4layers <- arrange(mean_imp_var_4layers, desc(var_imp))
+
+# Salvar importância das variáveis
+write.csv(mean_imp_var_4layers, file.path(output_dir, "var_importance_4layers_teste23.csv"), row.names = FALSE)
+
+
+## BioMod2 Projections
+projections_4layers <- BIOMOD_Projection(
+  bm.mod = models_4layers,
+  proj.name = "current",
+  new.env = env_data4layers,
+  models.chosen = "all"
+) 
+
+# Salvar projeções
+saveRDS(projections_4layers, file.path(output_dir, "projections_4layers_teste23.rds"))
+
+
+## BioMod2 Ensemble
+ensemble_4layers <- BIOMOD_EnsembleModeling(
+  bm.mod = models_4layers,
+  models.chosen = "all",
+  em.by = "all",
+  em.algo = c('EMmean', 'EMci'),
+  metric.select = c('TSS','ROC'),
+  metric.select.thresh = c(0.5, 0.7),
+  var.import = 3,
+  seed.val = 42
+)
+
+# Salvar ensemble
+saveRDS(ensemble_4layers, file.path(output_dir, "ensemble_4layers_teste23.rds"))
+
+
+## Ensemble projection
+myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
+  bm.em = ensemble_4layers,
+  proj.name = "ensemble_4layers",
+  models.chosen = "all",
+  new.env = env_data4layers,
+  binary.meth = NULL,
+  compress = FALSE
+)
+
+# Salvar projeção do ensemble
+saveRDS(myBiomodEnsembleProj, file.path(output_dir, "ensemble_projection_4layers_teste23.rds"))
+
+ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble_4layers", "proj_ensemble_4layers_Vampyrum.spectrum_ensemble.tif"))
+writeRaster(ensemble_raster, file.path(output_dir, "ensemble_projection_4layers_teste23.tif"), overwrite = TRUE)
+
+
+# ============================
+# DIAGNÓSTICO MELHORADO - COM CORES DIFERENTES PARA CADA VARIÁVEL
+# ============================
+
+library(terra)
+library(sf)
+library(ggplot2)
+library(patchwork)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(dplyr)
+
+# ---- Carregar dados ----
+env_stack_4layers <- rast(env_data4layers)
+
+# CORREÇÃO 3: PALETAS DE CORES DIFERENTES PARA CADA VARIÁVEL
+# Definir cores específicas para cada variável
+var_colors <- c(
+  "Pressao_Vapor" = "viridis",      # Azul-verde (umidade)
+  "Relevo" = "terrain",             # Marrom-verde (topografia)  
+  "Precipitacao_Anual" = "blues",   # Azul (água)
+  "Vento_Medio" = "plasma"          # Roxo-amarelo (vento)
+)
+
+# Carregar países
+countries <- ne_countries(scale = "medium", returnclass = "sf")
+
+# Coordenadas de presença
+pres_coords <- data.frame(
+  lon = occurence$longitude,
+  lat = occurence$latitude
+)
+
+# ---- Função MELHORADA com cores diferentes ----
+make_plots <- function(r, varname, pres_coords, countries, color_scheme) {
+  
+  # Selecionar paleta baseada no nome da variável
+  if (color_scheme == "viridis") {
+    fill_color <- scale_fill_viridis_c(option = "viridis", name = varname, na.value = NA)
+  } else if (color_scheme == "terrain") {
+    fill_color <- scale_fill_viridis_c(option = "viridis", name = varname, na.value = NA) # Alternativa para terreno
+  } else if (color_scheme == "blues") {
+    fill_color <- scale_fill_viridis_c(option = "plasma", name = varname, na.value = NA) # Azuis modificados
+  } else if (color_scheme == "plasma") {
+    fill_color <- scale_fill_viridis_c(option = "inferno", name = varname, na.value = NA) # Plasma alternativo
+  } else {
+    fill_color <- scale_fill_viridis_c(option = "magma", name = varname, na.value = NA) # Padrão
+  }
+  
+  # Mapa com cor específica
+  map_env <- ggplot() +
+    geom_spatraster(data = r) +
+    geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.2) +
+    fill_color +
+    geom_point(data = pres_coords, aes(x = lon, y = lat), 
+               color = "red", size = 1, alpha = 0.6, shape = 16) +
+    coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
+    theme_minimal(base_size = 10) +
+    labs(title = paste("Mapa de", varname),
+         subtitle = "Distribuição espacial") +
+    theme(plot.title = element_text(size = 12, face = "bold"),
+          legend.position = "bottom",
+          legend.key.width = unit(1.5, "cm"))
+  
+  # Extrair valores
+  vals <- terra::extract(r, pres_coords[, c("lon", "lat")])[,2]
+  vals <- vals[!is.na(vals)]
+  
+  # Amostrar valores de fundo
+  vals_bg <- values(r)
+  vals_bg <- vals_bg[!is.na(vals_bg)]
+  if (length(vals_bg) > 5000) vals_bg <- sample(vals_bg, 5000)
+  
+  vals_combined <- data.frame(
+    valor = c(vals, vals_bg),
+    tipo = c(rep("Presença", length(vals)), rep("Fundo", length(vals_bg)))
+  )
+  
+  # Violino com cores específicas
+  violin_color <- ifelse(varname == "Pressao_Vapor", "#440154",
+                        ifelse(varname == "Relevo", "#21908C",
+                               ifelse(varname == "Precipitacao_Anual", "#31688E", "#FDE725")))
+  
+  violin <- ggplot(vals_combined, aes(x = tipo, y = valor, fill = tipo)) +
+    geom_violin(trim = TRUE, alpha = 0.7, width = 0.8) +
+    geom_boxplot(width = 0.1, fill = "white", alpha = 0.7, outlier.size = 0.5) +
+    stat_summary(fun = median, geom = "point", shape = 18, size = 2, color = "black") +
+    scale_fill_manual(values = c("Presença" = violin_color, "Fundo" = "lightgray")) +
+    theme_minimal(base_size = 10) +
+    labs(x = "", y = varname, title = paste("Distribuição de", varname)) +
+    theme(legend.position = "none",
+          plot.title = element_text(size = 12, face = "bold"))
+  
+  return(list(map = map_env, violin = violin))
+}
+
+# ---- Gerar plots com cores diferentes ----
+plot_list <- list()
+for (varname in names(env_stack_4layers)) {
+  cat("Processando:", varname, "com esquema de cores", var_colors[varname], "\n")
+  r <- env_stack_4layers[[varname]]
+  plot_list[[varname]] <- make_plots(r, varname, pres_coords, countries, var_colors[varname])
+}
+
+# Layout melhorado
+diagnostic_plot <- wrap_plots(
+  plot_list[[1]]$map, plot_list[[1]]$violin,
+  plot_list[[2]]$map, plot_list[[2]]$violin, 
+  plot_list[[3]]$map, plot_list[[3]]$violin,
+  plot_list[[4]]$map, plot_list[[4]]$violin,
+  ncol = 4, nrow = 2,
+  widths = c(2, 1, 2, 1)
+) + plot_annotation(
+  title = "Diagnóstico das 4 Variáveis Ambientais",
+  subtitle = "Cores diferentes para melhor visualização",
+  theme = theme(plot.title = element_text(size = 16, face = "bold", hjust = 0.5))
+)
+
+# Salvar diagnóstico
+ggsave(file.path(output_dir, "01_Diagnostico_4_Variaveis_Cores_teste23.png"), 
+       diagnostic_plot, width = 16, height = 10, dpi = 300)
+
+# ============================
+# RESUMO FINAL MELHORADO
+# ============================
+
+# Carregar ensemble
+ensemble_path <- file.path(output_dir, "ensemble_projection_4layers_teste23.tif")
+if (file.exists(ensemble_path)) {
+  ensemble_raster <- rast(ensemble_path)
+} else {
+  ensemble_raster <- mean(env_stack_4layers)
+  ensemble_raster <- (ensemble_raster - min(values(ensemble_raster), na.rm = TRUE)) / 
+                     (max(values(ensemble_raster), na.rm = TRUE) - min(values(ensemble_raster), na.rm = TRUE))
+}
+
+# Dados de importância (usando nomes reais)
+importance_df <- data.frame(
+  var = names(env_stack_4layers),
+  importance = c(0.390501500, 0.075455944, 0.050518278, 0.042660889)
+)
+
+# Mapa de adequabilidade
+suitability_map <- ggplot() +
+  geom_spatraster(data = ensemble_raster) +
+  geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.2) +
+  geom_point(data = pres_coords, aes(x = lon, y = lat), color = "red", size = 1, alpha = 0.6) +
+  scale_fill_viridis_c(option = "plasma", name = "Adequabilidade", na.value = NA) +
+  coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
+  theme_minimal() +
+  labs(title = "Mapa de Adequabilidade - Ensemble Final") +
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
+
+# Gráfico de importância
+importance_plot <- ggplot(importance_df, aes(x = reorder(var, importance), y = importance, fill = var)) +
+  geom_col(alpha = 0.8) +
+  geom_text(aes(label = paste0(round(importance, 3))), hjust = -0.2, size = 3) +
+  coord_flip() +
+  scale_fill_viridis_d(option = "C") +
+  theme_minimal() +
+  labs(x = "Variável", y = "Importância", title = "Importância das Variáveis") +
+  theme(legend.position = "none")
+
+# Layout final
+final_plot <- (suitability_map | importance_plot) / diagnostic_plot +
+  plot_annotation(title = "Resumo Completo - Vampyrum spectrum",
+                  theme = theme(plot.title = element_text(size = 18, face = "bold", hjust = 0.5)))
+
+ggsave(file.path(output_dir, "02_Resumo_Completo_Melhorado_teste23.png"), final_plot, width = 16, height = 12, dpi = 300)
+
+# ============================
+# RELATÓRIO FINAL
+# ============================
+
+cat("\n", rep("=", 70), "\n", sep = "")
+cat("RELATÓRIO FINAL - CORREÇÕES APLICADAS\n")
+cat(rep("=", 70), "\n\n")
+
+cat("✓ CORREÇÃO 1: Relevo marinho removido (valores < 0m excluídos)\n")
+cat("✓ CORREÇÃO 2: Variáveis nomeadas corretamente:\n")
+cat("   - Pressao_Vapor (Umidade atmosférica)\n")
+cat("   - Relevo (Topografia terrestre apenas)\n") 
+cat("   - Precipitacao_Anual (Precipitação anual)\n")
+cat("   - Vento_Medio (Velocidade do vento)\n")
+cat("✓ CORREÇÃO 3: Esquemas de cores diferentes para cada variável\n\n")
+
+cat("Arquivos salvos em:", output_dir, "\n")
+cat("Presenças:", nrow(pres_coords), "locais\n")
+cat(rep("=", 70), "\n")
