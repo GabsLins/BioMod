@@ -1,6 +1,6 @@
 # RODAR APÓS O ENSEMBLE 4 LAYERS
 # -------------------------------------------------------------------
-#install.packages('patchwork') 
+install.packages('patchwork') 
 #
 #CÓDIGO DE VISUALIZAÇÃO INTEGRADO - Execute APÓS o ensemble
 # -------------------------------------------------------------------
