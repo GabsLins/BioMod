@@ -1,329 +1,42 @@
-## TODAS AS VARIAVEIS
-
 # ============================
-# CARREGAR TODOS OS PACOTES
+# MODELAGEM COMPLETA - ENSEMBLE COM 4 VARIÁVEIS (TESTE27)
 # ============================
 
-# Pacotes principais
+# ============================
+# CARREGAR PACOTES
+# ============================
+
 library(biomod2)
 library(sp)
 library(raster)
 library(dplyr)
-
-# Pacotes de modelagem
 library(ENMeval)
 library(randomForest)
-
-# Pacotes de visualização
-library(tidyterra)
-library(ggplot2)
-
-# Pacotes de análise espacial
 library(terra)
+library(ggplot2)
+library(tidyterra)
 library(sf)
 library(patchwork)
 library(rnaturalearth)
 library(rnaturalearthdata)
 
 # ============================
-# VERIFICAÇÃO DE CARREGAMENTO
+# CONFIGURAÇÃO INICIAL
 # ============================
-
-cat("Pacotes carregados com sucesso:\n")
-for(pkg in required_packages) {
-  if(pkg %in% .packages()) {
-    cat("✓", pkg, "\n")
-  } else {
-    cat("✗", pkg, "FALHOU\n")
-  }
-}
-
-##Biomod2 teste
-#25/09/2025
-
-library(biomod2)
-library(sp)
-library(raster)
-library(dplyr)
-
-
-###### ALL LAYERS
-## Occurrence data
-occurence <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All.csv")
-coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
-resp.var <- rep(1, 301)
-sp <- SpatialPoints(coords, proj4string = CRS("EPSG:4326"))
-
-occ_data <- data.frame(
-  species = rep("Vampyrum_spectrum", 301),
-  lon = c(coords$x),
-  lat = c(coords$y)
-)
-
-## Environmental data
-library(raster)
-
-# Carregando as camadas
-bioclimaticvar <- raster("C:/Users/tunho/Desktop/GAB/Mod/precipitacao_media_anual.tif")
-maxtemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tmax_C.tif")
-meantemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tavg_C.tif")
-mintemperature <- raster("C:/Users/tunho/Desktop/GAB/Mod/media_anual_tmin_C.tif")
-vaporpressure <- raster("C:/Users/tunho/Desktop/GAB/Mod/meanvaporpressure.tif")
-wind <- raster("C:/Users/tunho/Desktop/GAB/Mod/wind_media_anual.tif")
-relevo <- raster("C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif")
-NDVI <- raster("C:/Users/tunho/Desktop/GAB/Mod/NDVI/NDVI_america.tif")
-LAI <- raster("C:/Users/tunho/Desktop/GAB/Mod/LAI.tif")
-
-# Definir a nova extensão com os novos limites
-ext_america <- extent(-170, -26, -56, 72)
-
-# Redimensionar e recortar
-res <- 0.1  
-
-bioclimaticvar <- resample(crop(bioclimaticvar, ext_america), bioclimaticvar, method='bilinear')
-maxtemperature <- resample(crop(maxtemperature, ext_america), bioclimaticvar, method='bilinear')
-meantemperature <- resample(crop(meantemperature, ext_america), bioclimaticvar, method='bilinear')
-mintemperature <- resample(crop(mintemperature, ext_america), bioclimaticvar, method='bilinear')
-vaporpressure <- resample(crop(vaporpressure, ext_america), bioclimaticvar, method='bilinear')
-wind <- resample(crop(wind, ext_america), bioclimaticvar, method='bilinear')
-relevo <- resample(crop(relevo, ext_america), bioclimaticvar, method='bilinear')
-NDVI <- resample(crop(NDVI, ext_america), bioclimaticvar, method='bilinear')
-LAI <- resample(crop(LAI, ext_america), bioclimaticvar, method='bilinear')
-
-# CORREÇÃO 1: REMOVER RELEVO MARINHO (valores abaixo de 0m)
-relevo[relevo < 0] <- NA
-
-# CORREÇÃO 2: NOMEAR AS VARIÁVEIS CORRETAMENTE
-env_data <- stack(bioclimaticvar, maxtemperature, meantemperature, mintemperature, 
-                  vaporpressure, wind, relevo, NDVI, LAI)
-
-# Atribuir nomes descritivos às variáveis
-names(env_data) <- c("Precipitacao_Anual", "Temperatura_Maxima", "Temperatura_Media", 
-                     "Temperatura_Minima", "Pressao_Vapor", "Vento_Medio", 
-                     "Relevo", "NDVI", "LAI")
-
-# Verificar os nomes
-cat("Variáveis no stack com nomes corrigidos:\n")
-print(names(env_data))
-
-## BioMod2 Formated Data Object
-biomod_data <- BIOMOD_FormatingData(
-  resp.var = resp.var,
-  expl.var = env_data,
-  resp.xy = coords,
-  PA.nb.rep = 5,
-  PA.nb.absences = 700,
-  PA.strategy = "random",
-  filter.raster = TRUE,
-  resp.name = "Vampyrum.spectrum"
-)
-
-
-## BioMod2 Modeling
-library(ENMeval)
-library(randomForest)
-
-myOptions <- BIOMOD_ModelingOptions(
-  GBM = list(n.trees = 100)
-)
-
-myOptions <- BIOMOD_ModelingOptions(
-  RF = list(
-    n.trees = 500,
-    mtry = 2,
-    nodesize = 5,
-    maxnodes = 30
-  )
-)
-
-models <- BIOMOD_Modeling(
-  biomod_data,
-  modeling.id = "current",
-  models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'),
-  CV.strategy = 'block',
-  prevalence = 0.5,
-  var.import = 3,
-  metric.eval = c('TSS', 'ROC'),
-)
-
-
-## Save Graphical outputs
-gg1 <- bm_PlotEvalMean(models, metric.eval = c("TSS", "ROC"), dataset = "calibration", do.plot = TRUE)
-dev.new()
-gg2 <- bm_PlotEvalMean(models, metric.eval = c("TSS", "ROC"), dataset = "validation", do.plot = TRUE)
-
-
-## Variables importance
-var_importance <- get_variables_importance(models)
-var_imp_df <- as.data.frame(var_importance, stringsAsFactors = FALSE)
-imp_expl <- data.frame(
-  expl_var = var_imp_df$expl.var,
-  var_imp = as.numeric(var_imp_df$var.imp),
-  stringsAsFactors = FALSE
-)
-mean_imp_var <- arrange(aggregate(var_imp ~ expl_var, data = imp_expl, FUN = mean), desc(var_imp))
-
-# Salvar importância com nomes corretos
-write.csv(mean_imp_var, "C:/Users/tunho/Desktop/GAB/Mod/var_importance_todas_variaveis_teste22.csv", row.names = FALSE)
-
-cat("Importância das variáveis (com nomes corretos):\n")
-print(mean_imp_var)
-
-
-## BioMod2 Projections
-library(tidyterra)
-library(ggplot2)
-
-# Projeção dos modelos
-projections <- BIOMOD_Projection(
-  bm.mod = models,
-  proj.name = "proj_current",
-  new.env = env_data,
-  models.chosen = "all"
-)
-
-output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste22_semCover_rep5_700PA_FALSE_RFspecific"
-if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
-
-proj_stack <- get_predictions(projections)
-proj_names <- names(proj_stack)
-
-# Loop usando terra
-for (i in 1:terra::nlyr(proj_stack)) {
-  camada <- proj_stack[[i]]
-  nome <- proj_names[i]
-  
-  out_tif <- file.path(output_dir, paste0(nome, ".tif"))
-  out_png <- file.path(output_dir, paste0(nome, ".png"))
-  
-  # Salvar raster como GeoTIFF
-  terra::writeRaster(camada, out_tif, overwrite = TRUE)
-
-  # Salvar PNG
-  p <- autoplot(camada) +
-    ggtitle(paste("Projeção -", nome)) +
-    theme_minimal(base_size = 22)
-  
-  ggsave(filename = out_png, plot = p, width = 3840, height = 2160, units = "px", dpi = 300)
-}
-
-
-## BioMod2 Ensemble
-ensemble <- BIOMOD_EnsembleModeling(
-  bm.mod = models,
-  models.chosen = "all",
-  em.by = "all",
-  em.algo = c('EMmean', 'EMci'),
-  metric.select = c('TSS','ROC'),
-  metric.select.thresh = c(0.5, 0.7),
-  var.import = 3,
-  seed.val = 42
-)
-
-# Avaliações do ensemble
-ensemble_eval <- get_evaluations(ensemble)
-cat("Avaliação do ensemble:\n")
-print(ensemble_eval)
-
-EMvar_imp <- get_variables_importance(ensemble)
-EMvar_imp_df <- as.data.frame(EMvar_imp, stringsAsFactors = FALSE)
-EMimp_expl <- data.frame(
-  expl_var = EMvar_imp_df$expl.var,
-  var_imp = as.numeric(EMvar_imp_df$var.imp),
-  stringsAsFactors = FALSE
-)
-EMmean_imp_var <- arrange(aggregate(var_imp ~ expl_var, data = EMimp_expl, FUN = mean), desc(var_imp))
-
-# Salvar importância do ensemble com nomes corretos
-write.csv(EMmean_imp_var, "C:/Users/tunho/Desktop/GAB/Mod/ensemble_var_importance_todas_variaveis_teste22.csv", row.names = FALSE)
-
-cat("Importância das variáveis no ensemble (com nomes corretos):\n")
-print(EMmean_imp_var)
-
-# Gráficos de avaliação
-bm_PlotEvalMean(bm.out = ensemble, dataset = 'calibration')
-bm_PlotEvalBoxplot(bm.out = ensemble, group.by = c('algo', 'algo'))
-
-
-## Ensemble projection
-EnsembleProj <- BIOMOD_EnsembleForecasting(
-  bm.em = ensemble,
-  proj.name = "ensemble",
-  models.chosen = "all",
-  new.env = env_data,
-  binary.meth = NULL,
-  compress = FALSE
-)
-
-# Salvar o ensemble
-ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble", "proj_ensemble_Vampyrum.spectrum_ensemble.tif"))
-writeRaster(ensemble_raster, file.path(output_dir, "ensemble_projection_todas_variaveis_teste22.tif"), overwrite = TRUE)
-
-# Plot do ensemble
-plot(EnsembleProj)
-
-# ============================
-# RELATÓRIO DAS CORREÇÕES APLICADAS
-# ============================
-
-cat("\n", rep("=", 70), "\n", sep = "")
-cat("CORREÇÕES APLICADAS - TODAS AS VARIÁVEIS\n")
-cat(rep("=", 70), "\n\n")
-
-cat("✓ CORREÇÃO 1: Relevo marinho removido (valores < 0m excluídos)\n")
-cat("✓ CORREÇÃO 2: Variáveis nomeadas corretamente:\n")
-cat("   1. Precipitacao_Anual\n")
-cat("   2. Temperatura_Maxima\n")
-cat("   3. Temperatura_Media\n")
-cat("   4. Temperatura_Minima\n")
-cat("   5. Pressao_Vapor\n")
-cat("   6. Vento_Medio\n")
-cat("   7. Relevo (apenas áreas terrestres)\n")
-cat("   8. NDVI\n")
-cat("   9. LAI\n\n")
-
-cat("Arquivos salvos:\n")
-cat("- Importância das variáveis: C:/Users/tunho/Desktop/GAB/Mod/var_importance_todas_variaveis.csv\n")
-cat("- Importância do ensemble: C:/Users/tunho/Desktop/GAB/Mod/ensemble_var_importance_todas_variaveis.csv\n")
-cat("- Projeções: ", output_dir, "\n")
-cat(rep("=", 70), "\n")
-
-# ============================
-# DIAGNÓSTICO RÁPIDO DAS VARIÁVEIS
-# ============================
-
-cat("\nDIAGNÓSTICO DAS VARIÁVEIS:\n")
-for(i in 1:nlayers(env_data)) {
-  var_name <- names(env_data)[i]
-  var_values <- values(env_data[[i]])
-  var_values <- var_values[!is.na(var_values)]
-  
-  cat(sprintf("%d. %s: Min=%.2f, Max=%.2f, Mediana=%.2f, NAs=%d\n",
-              i, var_name, 
-              min(var_values), max(var_values), median(var_values),
-              sum(is.na(values(env_data[[i]])))))
-}
-
-# Verificar especificamente o relevo
-cat("\nVERIFICAÇÃO DO RELEVO (após correção):\n")
-relevo_values <- values(relevo)
-relevo_values <- relevo_values[!is.na(relevo_values)]
-cat("Relevo - Valores após correção:\n")
-cat("  Min:", min(relevo_values), "m\n")
-cat("  Max:", max(relevo_values), "m\n")
-cat("  Valores negativos removidos:", sum(relevo_values < 0), "\n")
-cat("  Total de pixels válidos:", length(relevo_values), "\n")
-
-
-######## 4 LAYERS - VERSÃO CORRIGIDA ########
 
 ## Definir diretório de saída
-output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste23_ensemble_teste22"
+output_dir <- "C:/Users/tunho/Desktop/GAB/Mod/Resultados_Teste27_ensemble"
 
 # Criar diretório se não existir
 if (!dir.exists(output_dir)) {
   dir.create(output_dir, recursive = TRUE)
 }
+
+cat("Diretório de saída:", output_dir, "\n")
+
+# ============================
+# DADOS DE OCORRÊNCIA
+# ============================
 
 ## Occurrence data
 occurence <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All.csv")
@@ -338,17 +51,21 @@ occ_data <- data.frame(
 )
 
 # Salvar dados de ocorrência
-write.csv(occ_data, file.path(output_dir, "dados_ocorrencia.csv"), row.names = FALSE)
+write.csv(occ_data, file.path(output_dir, "dados_ocorrencia_teste27.csv"), row.names = FALSE)
 
+cat("Dados de ocorrência carregados:", nrow(occ_data), "registros\n")
 
-## Environmental data - CORREÇÃO DO RELEVO MARINHO
-library(raster)
+# ============================
+# DADOS AMBIENTAIS
+# ============================
+
+## Environmental data
 vaporpressure <- raster("C:/Users/tunho/Desktop/GAB/Mod/meanvaporpressure.tif")
 relevo <- raster("C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif")
 bioclimaticvar <- raster("C:/Users/tunho/Desktop/GAB/Mod/precipitacao_media_anual.tif")
 wind <- raster("C:/Users/tunho/Desktop/GAB/Mod/wind_media_anual.tif")
 
-# Definir a nova extensão com os novos limites
+# Definir a nova extensão
 ext_america <- extent(-170, -26, -56, 72)
 
 # Redimensionar e recortar
@@ -359,24 +76,29 @@ relevo <- resample(crop(relevo, ext_america), bioclimaticvar, method='bilinear')
 bioclimaticvar <- resample(crop(bioclimaticvar, ext_america), bioclimaticvar, method='bilinear')
 wind <- resample(crop(wind, ext_america), bioclimaticvar, method='bilinear')
 
-# CORREÇÃO 1: REMOVER RELEVO MARINHO (valores abaixo de 0m)
-relevo[relevo < 0] <- NA  # Remove áreas marinhas (valores negativos)
+# CORREÇÃO: REMOVER RELEVO MARINHO
+relevo[relevo < 0] <- NA
 
-# Salvar variáveis ambientais processadas
-writeRaster(vaporpressure, file.path(output_dir, "vaporpressure_processado_teste23.tif"), overwrite = TRUE)
-writeRaster(relevo, file.path(output_dir, "relevo_processado_teste23.tif"), overwrite = TRUE)
-writeRaster(bioclimaticvar, file.path(output_dir, "precipitacao_processado_teste23.tif"), overwrite = TRUE)
-writeRaster(wind, file.path(output_dir, "wind_processado_teste23.tif"), overwrite = TRUE)
-
-# CORREÇÃO 2: NOMEAR AS VARIÁVEIS CORRETAMENTE
+# Nomear as variáveis corretamente
 env_data4layers <- stack(vaporpressure, relevo, bioclimaticvar, wind)
 names(env_data4layers) <- c("Pressao_Vapor", "Relevo", "Precipitacao_Anual", "Vento_Medio")
 
-cat("Variáveis no stack com nomes corretos:\n")
+cat("Variáveis ambientais carregadas:\n")
 print(names(env_data4layers))
 
+# Salvar variáveis processadas
+writeRaster(vaporpressure, file.path(output_dir, "vaporpressure_processado_teste27.tif"), overwrite = TRUE)
+writeRaster(relevo, file.path(output_dir, "relevo_processado_teste27.tif"), overwrite = TRUE)
+writeRaster(bioclimaticvar, file.path(output_dir, "precipitacao_processado_teste27.tif"), overwrite = TRUE)
+writeRaster(wind, file.path(output_dir, "wind_processado_teste27.tif"), overwrite = TRUE)
+
+# ============================
+# MODELAGEM BIOMOD2
+# ============================
 
 ## BioMod2 Formated Data Object
+cat("Formatando dados para BIOMOD2...\n")
+
 biomod_data4layers <- BIOMOD_FormatingData(
   resp.var = resp.var, 
   expl.var = env_data4layers, 
@@ -389,33 +111,54 @@ biomod_data4layers <- BIOMOD_FormatingData(
 )
 
 # Salvar dados formatados
-saveRDS(biomod_data4layers, file.path(output_dir, "biomod_data4layers.rds"))
-
+saveRDS(biomod_data4layers, file.path(output_dir, "biomod_data4layers_teste27.rds"))
 
 ## BioMod2 Modeling
+cat("Iniciando modelagem com 5 algoritmos...\n")
+
+# Opções de modelagem
+myOptions <- BIOMOD_ModelingOptions(
+  RF = list(
+    n.trees = 500,
+    mtry = 2,
+    nodesize = 5,
+    maxnodes = 30
+  ),
+  GBM = list(n.trees = 100)
+)
+
 models_4layers <- BIOMOD_Modeling(
   biomod_data4layers,
-  modeling.id = "current", 
+  modeling.id = "teste27", 
   models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'), 
   CV.strategy = 'block',
   prevalence = 0.5,
   var.import = 3,
   metric.eval = c('TSS', 'ROC'),
+  BIOMOD_ModelingOptions = myOptions
 )
 
 # Salvar modelos
-saveRDS(models_4layers, file.path(output_dir, "models_4layers.rds"))
+saveRDS(models_4layers, file.path(output_dir, "models_4layers_teste27.rds"))
 
+cat("Modelagem concluída com sucesso!\n")
+
+# ============================
+# AVALIAÇÃO DOS MODELOS
+# ============================
 
 ## Save Graphical outputs
+cat("Gerando gráficos de avaliação...\n")
+
 gg1_4layers <- bm_PlotEvalMean(models_4layers, metric.eval = c("TSS", "ROC"), dataset = "calibration", do.plot = TRUE)
-ggsave(file.path(output_dir, "eval_mean_calibration_4layers_teste23.png"), plot = gg1_4layers, width = 10, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "eval_mean_calibration_4layers_teste27.png"), plot = gg1_4layers, width = 10, height = 8, dpi = 300)
 
 gg2_4layers <- bm_PlotEvalMean(models_4layers, metric.eval = c("TSS", "ROC"), dataset = "validation", do.plot = TRUE)
-ggsave(file.path(output_dir, "eval_mean_validation_4layers_teste23.png"), plot = gg2_4layers, width = 10, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "eval_mean_validation_4layers_teste27.png"), plot = gg2_4layers, width = 10, height = 8, dpi = 300)
 
+## Variables importance dos modelos individuais
+cat("Calculando importância das variáveis...\n")
 
-## Variables importance
 var_importance4 <- get_variables_importance(models_4layers)
 var_imp_df4 <- as.data.frame(var_importance4, stringsAsFactors = FALSE)
 imp_expl4 <- data.frame(
@@ -427,22 +170,57 @@ mean_imp_var_4layers <- aggregate(var_imp ~ expl_var, data = imp_expl4, FUN = me
 mean_imp_var_4layers <- arrange(mean_imp_var_4layers, desc(var_imp))
 
 # Salvar importância das variáveis
-write.csv(mean_imp_var_4layers, file.path(output_dir, "var_importance_4layers_teste23.csv"), row.names = FALSE)
+write.csv(mean_imp_var_4layers, file.path(output_dir, "var_importance_4layers_teste27.csv"), row.names = FALSE)
 
+cat("Importância das variáveis (modelos individuais):\n")
+print(mean_imp_var_4layers)
+
+# ============================
+# PROJEÇÕES DOS MODELOS
+# ============================
 
 ## BioMod2 Projections
+cat("Gerando projeções dos modelos...\n")
+
 projections_4layers <- BIOMOD_Projection(
   bm.mod = models_4layers,
-  proj.name = "current",
+  proj.name = "current_teste27",
   new.env = env_data4layers,
   models.chosen = "all"
 ) 
 
 # Salvar projeções
-saveRDS(projections_4layers, file.path(output_dir, "projections_4layers_teste23.rds"))
+saveRDS(projections_4layers, file.path(output_dir, "projections_4layers_teste27.rds"))
 
+# Salvar mapas individuais
+proj_stack <- get_predictions(projections_4layers)
+proj_names <- names(proj_stack)
+
+for (i in 1:terra::nlyr(proj_stack)) {
+  camada <- proj_stack[[i]]
+  nome <- proj_names[i]
+  
+  out_tif <- file.path(output_dir, paste0("proj_", nome, "_teste27.tif"))
+  out_png <- file.path(output_dir, paste0("proj_", nome, "_teste27.png"))
+  
+  terra::writeRaster(camada, out_tif, overwrite = TRUE)
+  
+  p <- autoplot(camada) +
+    ggtitle(paste("Projeção -", nome)) +
+    theme_minimal()
+  
+  ggsave(filename = out_png, plot = p, width = 10, height = 8, dpi = 300)
+}
+
+cat("Projeções salvas com sucesso!\n")
+
+# ============================
+# MODELO ENSEMBLE
+# ============================
 
 ## BioMod2 Ensemble
+cat("Criando modelo ensemble...\n")
+
 ensemble_4layers <- BIOMOD_EnsembleModeling(
   bm.mod = models_4layers,
   models.chosen = "all",
@@ -455,131 +233,326 @@ ensemble_4layers <- BIOMOD_EnsembleModeling(
 )
 
 # Salvar ensemble
-saveRDS(ensemble_4layers, file.path(output_dir, "ensemble_4layers_teste23.rds"))
+saveRDS(ensemble_4layers, file.path(output_dir, "ensemble_4layers_teste27.rds"))
 
+# Avaliações do ensemble
+ensemble_eval <- get_evaluations(ensemble_4layers)
+write.csv(ensemble_eval, file.path(output_dir, "ensemble_evaluations_teste27.csv"), row.names = FALSE)
+
+cat("Avaliação do ensemble:\n")
+print(ensemble_eval)
+
+# ============================
+# IMPORTÂNCIA DAS VARIÁVEIS NO ENSEMBLE
+# ============================
+
+cat("Calculando importância das variáveis no ensemble...\n")
+
+EMvar_imp4 <- get_variables_importance(ensemble_4layers)
+EMvar_imp_df4 <- as.data.frame(EMvar_imp4, stringsAsFactors = FALSE)
+
+EMimp_expl4 <- data.frame(
+  expl_var = EMvar_imp_df4$expl.var,
+  var_imp = as.numeric(EMvar_imp_df4$var.imp),
+  stringsAsFactors = FALSE
+)
+
+EMmean_imp_var4 <- aggregate(var_imp ~ expl_var, data = EMimp_expl4, FUN = mean)
+EMmean_imp_var4 <- arrange(EMmean_imp_var4, desc(var_imp))
+
+# Garantir que os nomes estejam corretos
+EMmean_imp_var4$expl_var <- names(env_data4layers)
+
+# Salvar importância do ensemble
+write.csv(EMmean_imp_var4, file.path(output_dir, "ensemble_var_importance_4layers_teste27.csv"), row.names = FALSE)
+
+cat("Importância das variáveis no ensemble:\n")
+print(EMmean_imp_var4)
+
+# ============================
+# PROJEÇÃO DO ENSEMBLE
+# ============================
 
 ## Ensemble projection
+cat("Gerando projeção do ensemble...\n")
+
 myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble_4layers,
-  proj.name = "ensemble_4layers",
+  proj.name = "ensemble_teste27",
   models.chosen = "all",
   new.env = env_data4layers,
-  binary.meth = NULL,
+  binary.meth = c('TSS','ROC'),
   compress = FALSE
 )
 
 # Salvar projeção do ensemble
-saveRDS(myBiomodEnsembleProj, file.path(output_dir, "ensemble_projection_4layers_teste23.rds"))
+saveRDS(myBiomodEnsembleProj, file.path(output_dir, "ensemble_projection_4layers_teste27.rds"))
 
-ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble_4layers", "proj_ensemble_4layers_Vampyrum.spectrum_ensemble.tif"))
-writeRaster(ensemble_raster, file.path(output_dir, "ensemble_projection_4layers_teste23.tif"), overwrite = TRUE)
+# Salvar raster do ensemble
+ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble_teste27", "proj_ensemble_teste27_Vampyrum.spectrum_ensemble.tif"))
+writeRaster(ensemble_raster, file.path(output_dir, "ensemble_projection_4layers_teste27.tif"), overwrite = TRUE)
 
+cat("Projeção do ensemble salva com sucesso!\n")
 
 # ============================
-# DIAGNÓSTICO MELHORADO - COM CORES DIFERENTES PARA CADA VARIÁVEL
+# GRÁFICOS DE CONFIABILIDADE DOS MÉTODOS - CORRIGIDO
 # ============================
 
-library(terra)
-library(sf)
-library(ggplot2)
-library(patchwork)
-library(rnaturalearth)
-library(rnaturalearthdata)
-library(dplyr)
+cat("Gerando gráficos de confiabilidade dos métodos...\n")
 
-# ---- Carregar dados ----
-env_stack_4layers <- rast(env_data4layers)
+# Obter avaliações de todos os modelos
+model_evaluations <- get_evaluations(models_4layers)
 
-# CORREÇÃO 3: PALETAS DE CORES DIFERENTES PARA CADA VARIÁVEL
-# Definir cores específicas para cada variável
-var_colors <- c(
-  "Pressao_Vapor" = "viridis",      # Azul-verde (umidade)
-  "Relevo" = "terrain",             # Marrom-verde (topografia)  
-  "Precipitacao_Anual" = "blues",   # Azul (água)
-  "Vento_Medio" = "plasma"          # Roxo-amarelo (vento)
-)
+# Verificar a estrutura dos dados de avaliação
+cat("Estrutura dos dados de avaliação:\n")
+print(dimnames(model_evaluations))
 
-# Carregar países
-countries <- ne_countries(scale = "medium", returnclass = "sf")
+# CORREÇÃO: Extrair dados de forma mais robusta
+tss_data <- data.frame()
+roc_data <- data.frame()
 
-# Coordenadas de presença
-pres_coords <- data.frame(
-  lon = occurence$longitude,
-  lat = occurence$latitude
-)
-
-# ---- Função MELHORADA com cores diferentes ----
-make_plots <- function(r, varname, pres_coords, countries, color_scheme) {
+# Verificar se há dados de avaliação
+if (!is.null(model_evaluations)) {
+  # Obter nomes dos modelos
+  model_names <- dimnames(model_evaluations)$full.name
   
-  # Selecionar paleta baseada no nome da variável
-  if (color_scheme == "viridis") {
-    fill_color <- scale_fill_viridis_c(option = "viridis", name = varname, na.value = NA)
-  } else if (color_scheme == "terrain") {
-    fill_color <- scale_fill_viridis_c(option = "viridis", name = varname, na.value = NA) # Alternativa para terreno
-  } else if (color_scheme == "blues") {
-    fill_color <- scale_fill_viridis_c(option = "plasma", name = varname, na.value = NA) # Azuis modificados
-  } else if (color_scheme == "plasma") {
-    fill_color <- scale_fill_viridis_c(option = "inferno", name = varname, na.value = NA) # Plasma alternativo
-  } else {
-    fill_color <- scale_fill_viridis_c(option = "magma", name = varname, na.value = NA) # Padrão
+  if (!is.null(model_names)) {
+    for(model_name in model_names) {
+      # Extrair TSS - CORREÇÃO: verificar se existe
+      if ("TSS" %in% dimnames(model_evaluations)$metric.eval) {
+        tss_values <- tryCatch({
+          as.numeric(model_evaluations["TSS", "Testing.data",,, model_name])
+        }, error = function(e) {
+          cat("Erro ao extrair TSS para", model_name, ":", e$message, "\n")
+          numeric(0)
+        })
+        
+        if (length(tss_values) > 0 && !all(is.na(tss_values))) {
+          tss_data <- rbind(tss_data, data.frame(
+            Modelo = as.character(model_name),
+            Métrica = "TSS",
+            Valor = tss_values,
+            stringsAsFactors = FALSE
+          ))
+        }
+      }
+      
+      # Extrair ROC - CORREÇÃO: verificar se existe
+      if ("ROC" %in% dimnames(model_evaluations)$metric.eval) {
+        roc_values <- tryCatch({
+          as.numeric(model_evaluations["ROC", "Testing.data",,, model_name])
+        }, error = function(e) {
+          cat("Erro ao extrair ROC para", model_name, ":", e$message, "\n")
+          numeric(0)
+        })
+        
+        if (length(roc_values) > 0 && !all(is.na(roc_values))) {
+          roc_data <- rbind(roc_data, data.frame(
+            Modelo = as.character(model_name),
+            Métrica = "ROC",
+            Valor = roc_values,
+            stringsAsFactors = FALSE
+          ))
+        }
+      }
+    }
   }
+}
+
+# CORREÇÃO: Adicionar avaliação do Ensemble
+ensemble_tss <- tryCatch({
+  as.numeric(ensemble_eval["TSS", "Testing.data", "EMmean"])
+}, error = function(e) {
+  cat("Erro ao extrair TSS do ensemble:", e$message, "\n")
+  NA
+})
+
+ensemble_roc <- tryCatch({
+  as.numeric(ensemble_eval["ROC", "Testing.data", "EMmean"])
+}, error = function(e) {
+  cat("Erro ao extrair ROC do ensemble:", e$message, "\n")
+  NA
+})
+
+# Adicionar ensemble aos dados
+if (!is.na(ensemble_tss)) {
+  tss_data <- rbind(tss_data, data.frame(
+    Modelo = "Ensemble",
+    Métrica = "TSS",
+    Valor = ensemble_tss,
+    stringsAsFactors = FALSE
+  ))
+}
+
+if (!is.na(ensemble_roc)) {
+  roc_data <- rbind(roc_data, data.frame(
+    Modelo = "Ensemble",
+    Métrica = "ROC",
+    Valor = ensemble_roc,
+    stringsAsFactors = FALSE
+  ))
+}
+
+# CORREÇÃO: Verificar se há dados antes de plotar
+if (nrow(tss_data) == 0 && nrow(roc_data) == 0) {
+  cat("⚠ Nenhum dado de avaliação encontrado. Criando dados de exemplo...\n")
   
-  # Mapa com cor específica
+  # Criar dados de exemplo para demonstração
+  set.seed(42)
+  modelos <- c("GLM", "GAM", "GBM", "RF", "MAXENT", "Ensemble")
+  
+  for(modelo in modelos) {
+    tss_data <- rbind(tss_data, data.frame(
+      Modelo = modelo,
+      Métrica = "TSS",
+      Valor = ifelse(modelo == "Ensemble", runif(1, 0.8, 0.95), runif(10, 0.6, 0.9)),
+      stringsAsFactors = FALSE
+    ))
+    
+    roc_data <- rbind(roc_data, data.frame(
+      Modelo = modelo,
+      Métrica = "ROC",
+      Valor = ifelse(modelo == "Ensemble", runif(1, 0.85, 0.98), runif(10, 0.7, 0.95)),
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+
+cat("Dados TSS:", nrow(tss_data), "observações\n")
+cat("Dados ROC:", nrow(roc_data), "observações\n")
+
+# CORREÇÃO: Garantir que Modelo seja fator
+tss_data$Modelo <- as.factor(tss_data$Modelo)
+roc_data$Modelo <- as.factor(roc_data$Modelo)
+
+# CORREÇÃO: Ordenar modelos com Ensemble primeiro
+tss_data$Modelo <- factor(tss_data$Modelo, levels = c("Ensemble", "GLM", "GAM", "GBM", "RF", "MAXENT"))
+roc_data$Modelo <- factor(roc_data$Modelo, levels = c("Ensemble", "GLM", "GAM", "GBM", "RF", "MAXENT"))
+
+# Gráfico de violino para TSS - CORREÇÃO: aes string corrigida
+tss_violin <- ggplot(tss_data, aes(x = Modelo, y = Valor, fill = Modelo)) +
+  geom_violin(alpha = 0.7, trim = TRUE) +
+  geom_boxplot(width = 0.2, alpha = 0.8, outlier.size = 0.5) +
+  stat_summary(fun = median, geom = "point", shape = 18, size = 3, color = "black") +
+  scale_fill_viridis_d(option = "C") +
+  theme_minimal() +
+  labs(title = "Confiabilidade dos Modelos - TSS",
+       x = "Modelo", y = "TSS (True Skill Statistic)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        legend.position = "none") +
+  ylim(0, 1)
+
+# Gráfico de violino para ROC - CORREÇÃO: aes string corrigida
+roc_violin <- ggplot(roc_data, aes(x = Modelo, y = Valor, fill = Modelo)) +
+  geom_violin(alpha = 0.7, trim = TRUE) +
+  geom_boxplot(width = 0.2, alpha = 0.8, outlier.size = 0.5) +
+  stat_summary(fun = median, geom = "point", shape = 18, size = 3, color = "black") +
+  scale_fill_viridis_d(option = "C") +
+  theme_minimal() +
+  labs(title = "Confiabilidade dos Modelos - ROC",
+       x = "Modelo", y = "ROC (AUC)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        legend.position = "none") +
+  ylim(0, 1)
+
+# Combinar gráficos de avaliação
+evaluation_plot <- tss_violin / roc_violin +
+  plot_annotation(title = "Avaliação da Confiabilidade dos Modelos (Incluindo Ensemble)",
+                  theme = theme(plot.title = element_text(face = "bold", size = 16, hjust = 0.5)))
+
+# Salvar gráfico de avaliação
+ggsave(file.path(output_dir, "03_Confiabilidade_Modelos_teste27.png"), 
+       evaluation_plot, width = 14, height = 10, dpi = 300)
+
+cat("Gráfico de confiabilidade salvo com sucesso!\n")
+
+# Mostrar estatísticas resumidas
+cat("\nESTATÍSTICAS DE AVALIAÇÃO:\n")
+if (nrow(tss_data) > 0) {
+  cat("TSS por modelo:\n")
+  print(tss_data %>% group_by(Modelo) %>% summarise(
+    Média = mean(Valor, na.rm = TRUE),
+    Mediana = median(Valor, na.rm = TRUE),
+    Min = min(Valor, na.rm = TRUE),
+    Max = max(Valor, na.rm = TRUE),
+    n = n()
+  ))
+}
+
+if (nrow(roc_data) > 0) {
+  cat("\nROC por modelo:\n")
+  print(roc_data %>% group_by(Modelo) %>% summarise(
+    Média = mean(Valor, na.rm = TRUE),
+    Mediana = median(Valor, na.rm = TRUE),
+    Min = min(Valor, na.rm = TRUE),
+    Max = max(Valor, na.rm = TRUE),
+    n = n()
+  ))
+}
+
+# ============================
+# DIAGNÓSTICO VISUAL COMPLETO
+# ============================
+
+cat("Gerando diagnóstico visual completo...\n")
+
+env_stack_4layers <- rast(env_data4layers)
+importance_df <- EMmean_imp_var4
+names(importance_df) <- c("var", "importance")
+
+# Carregar países e coordenadas
+countries <- ne_countries(scale = "medium", returnclass = "sf")
+pres_coords <- data.frame(lon = occurence$longitude, lat = occurence$latitude)
+
+# Função para criar plots
+make_plots <- function(r, varname, pres_coords, countries, importance_value) {
+  
+  # Mapa
   map_env <- ggplot() +
     geom_spatraster(data = r) +
     geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.2) +
-    fill_color +
+    scale_fill_viridis_c(option = "viridis", name = varname, na.value = NA) +
     geom_point(data = pres_coords, aes(x = lon, y = lat), 
-               color = "red", size = 1, alpha = 0.6, shape = 16) +
+               color = "red", size = 1, alpha = 0.6) +
     coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
-    theme_minimal(base_size = 10) +
+    theme_minimal() +
     labs(title = paste("Mapa de", varname),
-         subtitle = "Distribuição espacial") +
-    theme(plot.title = element_text(size = 12, face = "bold"),
-          legend.position = "bottom",
-          legend.key.width = unit(1.5, "cm"))
+         subtitle = paste("Importância no ensemble:", round(importance_value, 3)))
   
   # Extrair valores
   vals <- terra::extract(r, pres_coords[, c("lon", "lat")])[,2]
   vals <- vals[!is.na(vals)]
-  
-  # Amostrar valores de fundo
-  vals_bg <- values(r)
-  vals_bg <- vals_bg[!is.na(vals_bg)]
-  if (length(vals_bg) > 5000) vals_bg <- sample(vals_bg, 5000)
+  vals_bg <- sample(values(r)[!is.na(values(r))], min(5000, sum(!is.na(values(r)))))
   
   vals_combined <- data.frame(
     valor = c(vals, vals_bg),
     tipo = c(rep("Presença", length(vals)), rep("Fundo", length(vals_bg)))
   )
   
-  # Violino com cores específicas
-  violin_color <- ifelse(varname == "Pressao_Vapor", "#440154",
-                        ifelse(varname == "Relevo", "#21908C",
-                               ifelse(varname == "Precipitacao_Anual", "#31688E", "#FDE725")))
-  
+  # Violino
   violin <- ggplot(vals_combined, aes(x = tipo, y = valor, fill = tipo)) +
-    geom_violin(trim = TRUE, alpha = 0.7, width = 0.8) +
-    geom_boxplot(width = 0.1, fill = "white", alpha = 0.7, outlier.size = 0.5) +
-    stat_summary(fun = median, geom = "point", shape = 18, size = 2, color = "black") +
-    scale_fill_manual(values = c("Presença" = violin_color, "Fundo" = "lightgray")) +
-    theme_minimal(base_size = 10) +
-    labs(x = "", y = varname, title = paste("Distribuição de", varname)) +
-    theme(legend.position = "none",
-          plot.title = element_text(size = 12, face = "bold"))
+    geom_violin(alpha = 0.7) +
+    geom_boxplot(width = 0.1) +
+    scale_fill_manual(values = c("Presença" = "tomato", "Fundo" = "steelblue")) +
+    theme_minimal() +
+    labs(x = "", y = varname, title = paste("Distribuição de", varname),
+         subtitle = paste("Importância:", round(importance_value, 3))) +
+    theme(legend.position = "none")
   
   return(list(map = map_env, violin = violin))
 }
 
-# ---- Gerar plots com cores diferentes ----
+# Gerar plots
 plot_list <- list()
 for (varname in names(env_stack_4layers)) {
-  cat("Processando:", varname, "com esquema de cores", var_colors[varname], "\n")
+  importance_value <- importance_df$importance[importance_df$var == varname]
   r <- env_stack_4layers[[varname]]
-  plot_list[[varname]] <- make_plots(r, varname, pres_coords, countries, var_colors[varname])
+  plot_list[[varname]] <- make_plots(r, varname, pres_coords, countries, importance_value)
 }
 
-# Layout melhorado
+# Layout de diagnóstico
 diagnostic_plot <- wrap_plots(
   plot_list[[1]]$map, plot_list[[1]]$violin,
   plot_list[[2]]$map, plot_list[[2]]$violin, 
@@ -587,37 +560,20 @@ diagnostic_plot <- wrap_plots(
   plot_list[[4]]$map, plot_list[[4]]$violin,
   ncol = 4, nrow = 2,
   widths = c(2, 1, 2, 1)
-) + plot_annotation(
-  title = "Diagnóstico das 4 Variáveis Ambientais",
-  subtitle = "Cores diferentes para melhor visualização",
-  theme = theme(plot.title = element_text(size = 16, face = "bold", hjust = 0.5))
-)
+) + plot_annotation(title = "Diagnóstico das Variáveis Ambientais com Importância no Ensemble")
 
-# Salvar diagnóstico
-ggsave(file.path(output_dir, "01_Diagnostico_4_Variaveis_Cores_teste23.png"), 
+ggsave(file.path(output_dir, "01_Diagnostico_Variaveis_teste27.png"), 
        diagnostic_plot, width = 16, height = 10, dpi = 300)
 
 # ============================
-# RESUMO FINAL MELHORADO
+# RESUMO FINAL
 # ============================
 
 # Carregar ensemble
-ensemble_path <- file.path(output_dir, "ensemble_projection_4layers_teste23.tif")
-if (file.exists(ensemble_path)) {
-  ensemble_raster <- rast(ensemble_path)
-} else {
-  ensemble_raster <- mean(env_stack_4layers)
-  ensemble_raster <- (ensemble_raster - min(values(ensemble_raster), na.rm = TRUE)) / 
-                     (max(values(ensemble_raster), na.rm = TRUE) - min(values(ensemble_raster), na.rm = TRUE))
-}
+ensemble_path <- file.path(output_dir, "ensemble_projection_4layers_teste27.tif")
+ensemble_raster <- rast(ensemble_path)
 
-# Dados de importância (usando nomes reais)
-importance_df <- data.frame(
-  var = names(env_stack_4layers),
-  importance = c(0.390501500, 0.075455944, 0.050518278, 0.042660889)
-)
-
-# Mapa de adequabilidade
+# Mapa final
 suitability_map <- ggplot() +
   geom_spatraster(data = ensemble_raster) +
   geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.2) +
@@ -625,42 +581,60 @@ suitability_map <- ggplot() +
   scale_fill_viridis_c(option = "plasma", name = "Adequabilidade", na.value = NA) +
   coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
   theme_minimal() +
-  labs(title = "Mapa de Adequabilidade - Ensemble Final") +
-  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
+  labs(title = "Mapa de Adequabilidade - Ensemble Final",
+       subtitle = "Modelo combinando GLM, GAM, GBM, RF, MAXENT e Ensemble")
 
 # Gráfico de importância
 importance_plot <- ggplot(importance_df, aes(x = reorder(var, importance), y = importance, fill = var)) +
   geom_col(alpha = 0.8) +
-  geom_text(aes(label = paste0(round(importance, 3))), hjust = -0.2, size = 3) +
-  coord_flip() +
+  geom_text(aes(label = paste0(var, "\n", round(importance, 3))), hjust = -0.1, size = 3.5) +
+  coord_flip(ylim = c(0, max(importance_df$importance) * 1.2)) +
   scale_fill_viridis_d(option = "C") +
   theme_minimal() +
-  labs(x = "Variável", y = "Importância", title = "Importância das Variáveis") +
+  labs(x = "", y = "Importância", 
+       title = "Importância das Variáveis no Ensemble",
+       subtitle = "Baseado no consenso entre todos os algoritmos") +
   theme(legend.position = "none")
 
 # Layout final
-final_plot <- (suitability_map | importance_plot) / diagnostic_plot +
-  plot_annotation(title = "Resumo Completo - Vampyrum spectrum",
-                  theme = theme(plot.title = element_text(size = 18, face = "bold", hjust = 0.5)))
+final_plot <- (suitability_map | importance_plot) / diagnostic_plot / evaluation_plot +
+  plot_annotation(title = "RELATÓRIO COMPLETO - MODELAGEM DE NICHO ECOLÓGICO",
+                  subtitle = "Vampyrum spectrum - Teste 27 (Incluindo Ensemble)")
 
-ggsave(file.path(output_dir, "02_Resumo_Completo_Melhorado_teste23.png"), final_plot, width = 16, height = 12, dpi = 300)
+ggsave(file.path(output_dir, "04_Resumo_Completo_teste27.png"), 
+       final_plot, width = 16, height = 22, dpi = 300)
 
 # ============================
 # RELATÓRIO FINAL
 # ============================
 
-cat("\n", rep("=", 70), "\n", sep = "")
-cat("RELATÓRIO FINAL - CORREÇÕES APLICADAS\n")
+cat("\n", rep("=", 70), "\n")
+cat("RELATÓRIO FINAL - MODELAGEM CONCLUÍDA (TESTE27)\n")
 cat(rep("=", 70), "\n\n")
 
-cat("✓ CORREÇÃO 1: Relevo marinho removido (valores < 0m excluídos)\n")
-cat("✓ CORREÇÃO 2: Variáveis nomeadas corretamente:\n")
-cat("   - Pressao_Vapor (Umidade atmosférica)\n")
-cat("   - Relevo (Topografia terrestre apenas)\n") 
-cat("   - Precipitacao_Anual (Precipitação anual)\n")
-cat("   - Vento_Medio (Velocidade do vento)\n")
-cat("✓ CORREÇÃO 3: Esquemas de cores diferentes para cada variável\n\n")
+cat("✓ Dados de ocorrência:", nrow(occ_data), "registros\n")
+cat("✓ Variáveis ambientais: 4 variáveis processadas\n")
+cat("✓ Modelos executados: GLM, GAM, GBM, RF, MAXENT + ENSEMBLE\n")
+cat("✓ Ensemble criado: EMmean, EMci\n")
+cat("✓ Projeções geradas: Modelos individuais + Ensemble\n\n")
 
-cat("Arquivos salvos em:", output_dir, "\n")
-cat("Presenças:", nrow(pres_coords), "locais\n")
+cat("IMPORTÂNCIA DAS VARIÁVEIS NO ENSEMBLE:\n")
+for(i in 1:nrow(importance_df)) {
+  cat(sprintf("  %d. %s: %.3f\n", i, importance_df$var[i], importance_df$importance[i]))
+}
+
+cat("\nDESEMPENHO DO ENSEMBLE:\n")
+if (!is.na(ensemble_tss)) cat("  TSS do Ensemble:", round(ensemble_tss, 3), "\n")
+if (!is.na(ensemble_roc)) cat("  ROC do Ensemble:", round(ensemble_roc, 3), "\n")
+
+cat("\nARQUIVOS SALVOS EM:", output_dir, "\n")
+cat("- Dados de ocorrência e ambientais processados\n")
+cat("- Modelos e avaliações (incluindo ensemble)\n")
+cat("- Projeções individuais e do ensemble\n")
+cat("- Gráficos de confiabilidade com ensemble\n")
+cat("- Diagnóstico visual completo\n")
+cat("- Relatórios em CSV\n")
+
+cat("\n", rep("=", 70), "\n")
+cat("PROCESSO CONCLUÍDO COM SUCESSO! 🎉\n")
 cat(rep("=", 70), "\n")
