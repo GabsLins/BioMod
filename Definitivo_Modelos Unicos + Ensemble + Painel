@@ -2,6 +2,20 @@
 
 install.packages(c("biomod2", "sp", "raster", "dplyr"))
 
+library(biomod2)
+library(sp)
+library(raster)
+library(dplyr)
+library(ENMeval)
+library(randomForest)
+library(terra)
+library(ggplot2)
+library(tidyterra)
+library(sf)
+library(patchwork)
+library(rnaturalearth)
+library(rnaturalearthdata)
+
 ##Biomod2 teste
 #25/09/2025
 
