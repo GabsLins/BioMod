@@ -114,6 +114,8 @@ myOptions <- BIOMOD_ModelingOptions(
   )
 )
 
+## Se precisar baixar o java: https://github.com/ojdkbuild/ojdkbuild/releases/latest , o arquivo e o x86_64.zip
+
 models <- BIOMOD_Modeling(
   biomod_data,
   modeling.id = "current",
