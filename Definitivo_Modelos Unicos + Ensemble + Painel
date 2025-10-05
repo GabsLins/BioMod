@@ -424,14 +424,14 @@ myOptions <- BIOMOD_ModelingOptions(
 )
 
 models_4layers <- BIOMOD_Modeling(
-  biomod_data4layers,
-  modeling.id = "teste27", 
-  models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'), 
-  CV.strategy = 'block',
-  prevalence = 0.5,
-  var.import = 3,
-  metric.eval = c('TSS', 'ROC'),
-  BIOMOD_ModelingOptions = myOptions
+    biomod_data4layers,
+    modeling.id = "teste31", 
+    models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'), 
+    CV.strategy = 'block',
+    prevalence = 0.5,
+    var.import = 3,
+    metric.eval = c('TSS', 'ROC')
+    # Remove a linha BIOMOD_ModelingOptions = myOptions
 )
 
 # Salvar modelos
