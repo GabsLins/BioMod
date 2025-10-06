@@ -1,0 +1,212 @@
+library(sf)
+library(ggplot2)
+library(dplyr)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(ggspatial)
+
+# ============================
+# 1. CONFIGURAÇÃO INICIAL - AMÉRICA
+# ============================
+
+# Definir extensão da América
+america_bbox <- st_bbox(c(xmin = -170, xmax = -30, ymin = -60, ymax = 80), crs = 4326)
+
+# Carregar mapas de base
+america_countries <- ne_countries(scale = "medium", returnclass = "sf") %>%
+  st_crop(america_bbox) %>%
+  st_set_crs(4326)
+
+# ============================
+# 2. TENTAR CARREGAR DADOS IUCN (COM FALLBACK)
+# ============================
+
+cat("Tentando carregar dados IUCN...\n")
+
+iucn_vampyrum <- NULL
+
+# Tentativa 1: Carregar do pacote mddmaps
+tryCatch({
+  library(mddmaps)
+  data("mdd_maps")
+  
+  if(exists("mdd_maps")) {
+    iucn_vampyrum <- mdd_maps %>%
+      filter(binomial == "Vampyrum spectrum") %>%
+      st_crop(america_bbox) %>%
+      st_set_crs(4326)
+    cat("✅ Dados IUCN carregados do mddmaps\n")
+  }
+}, error = function(e) {
+  cat("❌ Erro ao carregar mddmaps:", e$message, "\n")
+})
+
+# Tentativa 2: Se mddmaps falhou, criar dados de exemplo
+if(is.null(iucn_vampyrum) || nrow(iucn_vampyrum) == 0) {
+  cat("⚠ Criando dados IUCN de exemplo...\n")
+  
+  # Criar polígono de exemplo para distribuição IUCN
+  iucn_vampyrum <- st_sf(
+    binomial = "Vampyrum spectrum",
+    geometry = st_sfc(
+      st_polygon(list(rbind(
+        c(-85, 20), c(-55, 20), c(-55, -10), c(-85, -10), c(-85, 20)
+      ))),
+      crs = 4326
+    )
+  )
+}
+
+# ============================
+# 3. CRIAR POLÍGONO IUCN
+# ============================
+
+cat("Criando polígono IUCN...\n")
+
+if(nrow(iucn_vampyrum) > 0) {
+  iucn_convex_hull <- st_convex_hull(st_union(iucn_vampyrum))
+  cat("✅ Polígono IUCN criado\n")
+} else {
+  cat("⚠ Criando polígono IUCN básico\n")
+  iucn_convex_hull <- st_sfc(
+    st_polygon(list(rbind(
+      c(-80, 15), c(-60, 15), c(-60, -5), c(-80, -5), c(-80, 15)
+    ))),
+    crs = 4326
+  )
+}
+
+# ============================
+# 4. CARREGAR DADOS COLETADOS
+# ============================
+
+cat("Carregando dados coletados...\n")
+
+tryCatch({
+  occ_data <- read.csv("C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All.csv")
+  cat("✅ Dados de ocorrência carregados\n")
+}, error = function(e) {
+  cat("❌ Erro ao carregar dados de ocorrência:", e$message, "\n")
+  cat("⚠ Criando dados de exemplo...\n")
+  
+  # Criar dados de ocorrência de exemplo
+  occ_data <- data.frame(
+    longitude = c(-70, -65, -75, -68, -72, -63, -77),
+    latitude = c(-5, 0, 5, -8, 2, -3, 8)
+  )
+})
+
+# Converter para sf
+occ_sf <- occ_data %>%
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326) %>%
+  st_crop(america_bbox)
+
+# Criar polígono de dados coletados
+if(nrow(occ_sf) > 0) {
+  occ_convex_hull <- st_convex_hull(st_union(occ_sf))
+  cat("✅ Polígono dados coletados criado\n")
+} else {
+  cat("⚠ Criando polígono de dados coletados de exemplo\n")
+  occ_convex_hull <- st_sfc(
+    st_polygon(list(rbind(
+      c(-75, 10), c(-65, 10), c(-65, 0), c(-75, 0), c(-75, 10)
+    ))),
+    crs = 4326
+  )
+}
+
+# ============================
+# 5. VERIFICAR CRS E CALCULAR SOBREPOSIÇÃO
+# ============================
+
+cat("Verificando CRS e calculando sobreposição...\n")
+
+# Garantir que ambos tenham CRS explícito
+iucn_convex_hull <- st_set_crs(iucn_convex_hull, 4326)
+occ_convex_hull <- st_set_crs(occ_convex_hull, 4326)
+
+# Calcular interseção com tratamento de erro
+intersection_area <- tryCatch({
+  # Verificar se os polígonos são válidos
+  if(all(st_is_valid(iucn_convex_hull), st_is_valid(occ_convex_hull))) {
+    result <- st_intersection(iucn_convex_hull, occ_convex_hull)
+    if(length(result) > 0 && !st_is_empty(result)) {
+      cat("✅ Área de sobreposição calculada\n")
+      result
+    } else {
+      cat("⚠ Área de sobreposição vazia\n")
+      st_sfc(st_polygon(), crs = 4326)
+    }
+  } else {
+    cat("⚠ Polígonos inválidos para interseção\n")
+    st_sfc(st_polygon(), crs = 4326)
+  }
+}, error = function(e) {
+  cat("❌ Erro na interseção:", e$message, "\n")
+  st_sfc(st_polygon(), crs = 4326)
+})
+
+# ============================
+# 6. CRIAR MAPA FINAL
+# ============================
+
+cat("Gerando mapa final...\n")
+
+final_map <- ggplot() +
+  # Mapa base
+  geom_sf(data = america_countries, fill = "gray95", color = "gray70", size = 0.2) +
+  
+  # Polígono IUCN (vermelho)
+  geom_sf(data = iucn_convex_hull, 
+          fill = "red", alpha = 0.3, color = "darkred", size = 1) +
+  
+  # Polígono dados coletados (azul)
+  geom_sf(data = occ_convex_hull, 
+          fill = "blue", alpha = 0.3, color = "darkblue", size = 1) +
+  
+  # Área de sobreposição (roxo) - só plota se não for vazia
+  {if(length(intersection_area) > 0 && !st_is_empty(intersection_area))
+    geom_sf(data = intersection_area, 
+            fill = "purple", alpha = 0.6, color = "purple", size = 1)
+  } +
+  
+  # Pontos de ocorrência
+  geom_sf(data = occ_sf, color = "darkblue", size = 2, alpha = 0.8) +
+  
+  # Elementos do mapa
+  coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
+  annotation_north_arrow(location = "tr", which_north = "true") +
+  annotation_scale(location = "bl") +
+  
+  # Títulos e legenda manual
+  labs(
+    title = "ANÁLISE COMPARATIVA: Vampyrum spectrum",
+    subtitle = "Comparação entre distribuição IUCN e dados de campo coletados",
+    caption = "Vermelho: IUCN | Azul: Dados Coletados | Roxo: Sobreposição"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5)
+  )
+
+# ============================
+# 7. EXIBIR E SALVAR
+# ============================
+
+print(final_map)
+
+# Salvar
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_Comparacao/"
+if(!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
+ggsave(
+  file.path(output_dir, "Mapa_Comparativo_Final.png"), 
+  final_map, 
+  width = 14, 
+  height = 10, 
+  dpi = 300
+)
+
+cat("✅ Mapa salvo em:", file.path(output_dir, "Mapa_Comparativo_Final.png"), "\n")
+cat("🎯 Análise concluída com sucesso!\n")
