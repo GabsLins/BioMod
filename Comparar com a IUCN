@@ -216,7 +216,6 @@ cat("🎯 Análise concluída com sucesso!\n")
 ### DADOS MAIS EXATOS:
 
 ### DADOS MAIS EXATOS:
-
 library(sf)
 library(dplyr)
 library(ggplot2)
@@ -242,8 +241,6 @@ iucn_file <- "C:/Users/Administrador/Desktop/Gab/Mod/MAMMALS_TERRESTRIAL_ONLY/MA
 
 cat("Carregando shapefile IUCN...\n")
 mammals <- st_read(iucn_file)
-
-# Verificar nomes de colunas
 print(colnames(mammals))
 
 # ============================
@@ -251,9 +248,7 @@ print(colnames(mammals))
 # ============================
 
 iucn_vampyrum <- mammals %>%
-    filter(sci_name == "Vampyrum spectrum",  # coluna correta
-           presence == 1,                     # apenas presente
-           origin == 1) %>%                    # apenas nativo
+    filter(sci_name == "Vampyrum spectrum", presence == 1, origin == 1) %>%
     st_crop(america_bbox) %>%
     st_set_crs(4326)
 
@@ -279,21 +274,25 @@ occ_sf <- occ_data %>%
 
 # Criar polígono concavo dos dados coletados
 occ_union <- st_union(occ_sf)
-
-# st_concave_hull exige o parâmetro 'ratio' (0 < ratio <= 1)
-occ_concave_hull <- st_concave_hull(occ_union, ratio = 0.1)
+occ_concave_hull <- st_concave_hull(occ_union, ratio = 0.175)
 occ_concave_hull <- st_simplify(occ_concave_hull, dTolerance = 0.5)
+occ_concave_hull <- st_buffer(occ_concave_hull, dist = 0.9)
 
+# ============================
+# 4.5 RECORTAR POLÍGONO AZUL PELOS LIMITES CONTINENTAIS
+# ============================
 
+occ_concave_hull <- st_transform(occ_concave_hull, st_crs(america_countries))
+occ_concave_hull_clipped <- st_intersection(occ_concave_hull, st_union(america_countries))
 
-cat("✅ Polígono concavo dos dados coletados criado\n")
+cat("✅ Polígono azul recortado pelos limites continentais\n")
 
 # ============================
 # 5. CALCULAR SOBREPOSIÇÃO
 # ============================
 
 intersection_area <- tryCatch({
-    result <- st_intersection(iucn_vampyrum, occ_concave_hull)
+    result <- st_intersection(iucn_vampyrum, occ_concave_hull_clipped)
     if(length(result) > 0 && !st_is_empty(result)) result else st_sfc(st_polygon(), crs = 4326)
 }, error = function(e) {
     st_sfc(st_polygon(), crs = 4326)
@@ -309,8 +308,8 @@ final_map <- ggplot() +
     # Polígono IUCN
     geom_sf(data = iucn_vampyrum, fill = "red", alpha = 0.3, color = "darkred", size = 1) +
     
-    # Polígono de dados coletados
-    geom_sf(data = occ_concave_hull, fill = "blue", alpha = 0.3, color = "darkblue", size = 1) +
+    # Polígono de dados coletados (recortado)
+    geom_sf(data = occ_concave_hull_clipped, fill = "blue", alpha = 0.3, color = "darkblue", size = 1) +
     
     # Área de sobreposição
     {if(length(intersection_area) > 0 && !st_is_empty(intersection_area))
@@ -344,10 +343,10 @@ output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_Comparacao/"
 if(!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 ggsave(
-    file.path(output_dir, "Mapa_Comparativo_IUCN_vs_Coletados4.png"), 
+    file.path(output_dir, "Mapa_Comparativo_IUCN_vs_Coletados5.png"), 
     final_map, 
     width = 14, height = 10, dpi = 300
 )
 
-cat("✅ Mapa salvo em:", file.path(output_dir, "Mapa_Comparativo_IUCN_vs_Coletados4.png"), "\n")
+cat("✅ Mapa salvo em:", file.path(output_dir, "Mapa_Comparativo_IUCN_vs_Coletados5.png"), "\n")
 
