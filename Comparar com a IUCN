@@ -483,3 +483,143 @@ ggsave(
 )
 
 cat("✅ Mapa salvo em:", file.path(output_dir_save, "Mapa_Comparativo_IUCN_vs_Coletados_Ensemble2.png"), "\n")
+
+
+#### COM DESENHO DE MORCEGO
+
+library(terra)
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(ggspatial)
+library(viridis)
+
+# ============================
+# 1. CONFIGURAÇÃO INICIAL - AMÉRICA
+# ============================
+
+america_bbox <- st_bbox(c(xmin = -170, xmax = -30, ymin = -60, ymax = 80), crs = 4326)
+
+america_countries <- ne_countries(scale = "medium", returnclass = "sf") %>%
+    st_crop(america_bbox) %>%
+    st_set_crs(4326)
+
+# ============================
+# 2. CARREGAR MAPA IUCN
+# ============================
+
+iucn_file <- "C:/Users/Administrador/Desktop/Gab/Mod/MAMMALS_TERRESTRIAL_ONLY/MAMMALS_TERRESTRIAL_ONLY.shp"
+mammals <- st_read(iucn_file)
+
+iucn_vampyrum <- mammals %>%
+    filter(sci_name == "Vampyrum spectrum", presence == 1, origin == 1) %>%
+    st_crop(america_bbox) %>%
+    st_set_crs(4326)
+
+# ============================
+# 3. CARREGAR DADOS COLETADOS
+# ============================
+
+occ_data <- tryCatch({
+    read.csv("C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All.csv")
+}, error = function(e) {
+    data.frame(
+        longitude = c(-70, -65, -75, -68, -72, -63, -77),
+        latitude = c(-5, 0, 5, -8, 2, -3, 8)
+    )
+})
+
+occ_sf <- occ_data %>%
+    st_as_sf(coords = c("longitude", "latitude"), crs = 4326) %>%
+    st_crop(america_bbox)
+
+# Criar polígono concavo
+occ_union <- st_union(occ_sf)
+occ_concave_hull <- st_concave_hull(occ_union, ratio = 0.175)
+occ_concave_hull <- st_simplify(occ_concave_hull, dTolerance = 0.5)
+occ_concave_hull <- st_buffer(occ_concave_hull, dist = 0.9)
+occ_concave_hull <- st_transform(occ_concave_hull, st_crs(america_countries))
+occ_concave_hull_clipped <- st_intersection(occ_concave_hull, st_union(america_countries))
+
+# Área de sobreposição
+intersection_area <- tryCatch({
+    result <- st_intersection(iucn_vampyrum, occ_concave_hull_clipped)
+    if(length(result) > 0 && !st_is_empty(result)) result else st_sfc(st_polygon(), crs = 4326)
+}, error = function(e) {
+    st_sfc(st_polygon(), crs = 4326)
+})
+
+# ============================
+# 4. CARREGAR RASTER ENSEMBLE
+# ============================
+
+output_dir <- "C:/Users/Administrador/Desktop/Gab/Mod/Resultados_Teste31_ensemble"
+ensemble_raster <- rast(file.path(output_dir, "ensemble_projection_4layers_teste31.tif"))
+
+# Converter raster para dataframe
+ensemble_df <- as.data.frame(ensemble_raster, xy = TRUE)
+colnames(ensemble_df) <- c("lon", "lat", "suitability")
+
+# ============================
+# 5. MAPA FINAL
+# ============================
+
+final_map <- ggplot() +
+    # Raster do ensemble por trás
+    geom_raster(data = ensemble_df, aes(x = lon, y = lat, fill = suitability)) +
+    scale_fill_viridis_c(option = "plasma", name = "Adequabilidade") +
+    
+    geom_text(data = occ_sf, aes(x = st_coordinates(occ_sf)[,1], 
+                                 y = st_coordinates(occ_sf)[,2]), 
+              label = "\U1F987", # 🦇 Unicode do morcego
+              size = 5, color = "black") +
+    
+    # Limites continentais
+    geom_sf(data = america_countries, fill = NA, color = "gray70", size = 0.2) +
+    
+    # Polígono IUCN
+    geom_sf(data = iucn_vampyrum, fill = "green", alpha = 0.3, color = "darkgreen", size = 1) +
+    
+    # Polígono azul (dados coletados)
+    geom_sf(data = occ_concave_hull_clipped, fill = "blue", alpha = 0.3, color = "darkblue", size = 1) +
+    
+    # Área de sobreposição
+    {if(length(intersection_area) > 0 && !st_is_empty(intersection_area))
+        geom_sf(data = intersection_area, fill = "orange", alpha = 0.5, color = "darkorange", size = 1)} +
+    
+    # Pontos de ocorrência
+    geom_sf(data = occ_sf, color = "black", size = 2, alpha = 0.8) +
+    
+    coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
+    annotation_north_arrow(location = "tr", which_north = "true") +
+    annotation_scale(location = "bl") +
+    
+    labs(
+        title = "ANÁLISE COMPARATIVA: Vampyrum spectrum",
+        subtitle = "Comparação entre distribuição IUCN (oficial) e dados de campo coletados",
+        caption = "Vermelho: IUCN | Azul: Dados Coletados | Roxo: Sobreposição"
+    ) +
+    theme_minimal() +
+    theme(
+        plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+        plot.subtitle = element_text(size = 12, hjust = 0.5)
+    )
+
+print(final_map)
+
+# ============================
+# 6. SALVAR MAPA
+# ============================
+
+output_dir_save <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_Comparacao/"
+if(!dir.exists(output_dir_save)) dir.create(output_dir_save, recursive = TRUE)
+
+ggsave(
+    file.path(output_dir_save, "Mapa_Comparativo_IUCN_vs_Coletados_Ensemble6.png"),
+    final_map, 
+    width = 14, height = 10, dpi = 300
+)
+
+cat("✅ Mapa salvo em:", file.path(output_dir_save, "Mapa_Comparativo_IUCN_vs_Coletados_Ensemble6.png"), "\n")
