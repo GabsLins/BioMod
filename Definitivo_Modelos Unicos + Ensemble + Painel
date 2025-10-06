@@ -295,7 +295,7 @@ cat("  Valores negativos removidos:", sum(relevo_values < 0), "\n")
 cat("  Total de pixels válidos:", length(relevo_values), "\n")
 
 # ============================
-# MODELAGEM COMPLETA - ENSEMBLE COM 4 VARIÁVEIS (TESTE27)
+# MODELAGEM COMPLETA - ENSEMBLE COM 4 VARIÁVEIS (TESTE31)
 # ============================
 
 # ============================
@@ -407,7 +407,7 @@ biomod_data4layers <- BIOMOD_FormatingData(
 )
 
 # Salvar dados formatados
-saveRDS(biomod_data4layers, file.path(output_dir, "biomod_data4layers_teste27.rds"))
+saveRDS(biomod_data4layers, file.path(output_dir, "biomod_data4layers_teste31.rds"))
 
 ## BioMod2 Modeling
 cat("Iniciando modelagem com 5 algoritmos...\n")
@@ -480,7 +480,7 @@ cat("Gerando projeções dos modelos...\n")
 
 projections_4layers <- BIOMOD_Projection(
   bm.mod = models_4layers,
-  proj.name = "current_teste27",
+  proj.name = "current_teste31",
   new.env = env_data4layers,
   models.chosen = "all"
 ) 
@@ -585,8 +585,8 @@ myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
 saveRDS(myBiomodEnsembleProj, file.path(output_dir, "ensemble_projection_4layers_teste31.rds"))
 
 # Salvar raster do ensemble
-ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble_teste27", "proj_ensemble_teste31_Vampyrum.spectrum_ensemble.tif"))
-writeRaster(ensemble_raster, file.path(output_dir, "ensemble_projection_4layers_teste27.tif"), overwrite = TRUE)
+ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble_teste31", "proj_ensemble_teste31_Vampyrum.spectrum_ensemble.tif"))
+writeRaster(ensemble_raster, file.path(output_dir, "ensemble_projection_4layers_teste31.tif"), overwrite = TRUE)
 
 cat("Projeção do ensemble salva com sucesso!\n")
 
@@ -759,7 +759,7 @@ evaluation_plot <- tss_violin / roc_violin +
                   theme = theme(plot.title = element_text(face = "bold", size = 16, hjust = 0.5)))
 
 # Salvar gráfico de avaliação
-ggsave(file.path(output_dir, "03_Confiabilidade_Modelos_teste27.png"), 
+ggsave(file.path(output_dir, "03_Confiabilidade_Modelos_teste31.png"), 
        evaluation_plot, width = 14, height = 10, dpi = 300)
 
 cat("Gráfico de confiabilidade salvo com sucesso!\n")
@@ -1233,7 +1233,7 @@ comparison_plot <- ggplot() +
        x = "Modelo", y = "Valor", color = "Métrica") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-ggsave(file.path(output_dir, "03C_Comparacao_Direta_Metricas_teste27.png"), 
+ggsave(file.path(output_dir, "03C_Comparacao_Direta_Metricas_teste31.png"), 
        comparison_plot, width = 12, height = 8, dpi = 300)
 
 # ============================
@@ -1243,7 +1243,7 @@ ggsave(file.path(output_dir, "03C_Comparacao_Direta_Metricas_teste27.png"),
 cat("Gerando painel final com violin plots AO LADO dos mapas das variáveis...\n")
 
 # 1. MAPA DE ADEQUABILIDADE DO ENSEMBLE
-ensemble_path <- file.path(output_dir, "ensemble_projection_4layers_teste27.tif")
+ensemble_path <- file.path(output_dir, "ensemble_projection_4layers_teste31.tif")
 ensemble_raster <- rast(ensemble_path)
 
 suitability_map <- ggplot() +
@@ -1557,9 +1557,9 @@ cat("  2. LINHA 2-3: Grid 2x2 com [Mapa | Violin] para cada variável\n")
 cat("  3. LINHA 4: Avaliação dos modelos [TSS | ROC]\n\n")
 
 cat("ARQUIVOS GERADOS:\n")
-cat("- 04_Painel_Final_Corrigido_LadoaLado_teste27.png (painel completo)\n")
-cat("- 04B_Painel_Compacto_LadoaLado_teste27.png (versão compacta)\n")
-cat("- 05_Painel_*_LadoaLado_teste27.png (painéis individuais das variáveis)\n\n")
+cat("- 04_Painel_Final_Corrigido_LadoaLado_teste31.png (painel completo)\n")
+cat("- 04B_Painel_Compacto_LadoaLado_teste31.png (versão compacta)\n")
+cat("- 05_Painel_*_LadoaLado_teste31.png (painéis individuais das variáveis)\n\n")
 
 cat("VISUALIZAÇÃO DAS VARIÁVEIS:\n")
 for(varname in names(env_stack_4layers)) {
