@@ -1349,9 +1349,10 @@ create_variable_side_panel <- function(r, varname, pres_coords, countries, impor
     ) +
     # Adicionar valores médios
     geom_text(data = stats, 
-              aes(x = tipo, y = min(violin_data$valor), 
-                  label = sprintf("Média: %.2f\nn: %d", media, n)),
-              vjust = -1, size = 3, fontface = "bold", color = "black")
+              aes(x = tipo, y = max(violin_data$valor, na.rm = TRUE) * 1.05,
+              label = paste0("Média: ", round(media, 2), "\nN: ", n)),
+              inherit.aes = FALSE,
+              size = 3, fontface = "bold", color = "black")
   
   # Combinar mapa e violin plot LADO A LADO
   side_by_side_plot <- map_plot | violin_plot
