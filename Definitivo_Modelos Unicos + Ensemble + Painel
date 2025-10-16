@@ -1559,7 +1559,7 @@ cat("  3. LINHA 4: Avaliação dos modelos [TSS | ROC]\n\n")
 cat("ARQUIVOS GERADOS:\n")
 cat("- 04_Painel_Final_Corrigido_LadoaLado_teste33.png (painel completo)\n")
 cat("- 04B_Painel_Compacto_LadoaLado_teste33.png (versão compacta)\n")
-cat("- 05_Painel_*_LadoaLado_teste31.png (painéis individuais das variáveis)\n\n")
+cat("- 05_Painel_*_LadoaLado_teste33.png (painéis individuais das variáveis)\n\n")
 
 cat("VISUALIZAÇÃO DAS VARIÁVEIS:\n")
 for(varname in names(env_stack_4layers)) {
