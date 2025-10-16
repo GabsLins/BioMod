@@ -1307,7 +1307,7 @@ create_variable_side_panel <- function(r, varname, pres_coords, countries, impor
   
   # Amostrar valores de fundo
   vals_fundo <- sample(values(r)[!is.na(values(r))], 
-                       min(2000, sum(!is.na(values(r)))))
+                       min(600, sum(!is.na(values(r))))) ## antes era 2000, esse é o numero de pontos no "fundo"
   vals_fundo <- vals_fundo[!is.na(vals_fundo)]
   
   # Criar dataframe para o violin plot
@@ -1328,7 +1328,7 @@ create_variable_side_panel <- function(r, varname, pres_coords, countries, impor
   
   violin_plot <- ggplot(violin_data, aes(x = tipo, y = valor, fill = tipo)) +
     geom_violin(alpha = 0.7, trim = TRUE, width = 0.8) +
-    geom_boxplot(width = 0.15, alpha = 0.9, outlier.size = 0.8) +
+    geom_boxplot(width = 0.10, alpha = 0.7, outlier.size = 0.8) +
     geom_point(position = position_jitter(width = 0.2), alpha = 0.4, size = 1) +
     stat_summary(fun = mean, geom = "point", shape = 23, size = 3, 
                  fill = "white", color = "black") +
