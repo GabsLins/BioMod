@@ -425,7 +425,7 @@ myOptions <- BIOMOD_ModelingOptions(
 
 models_4layers <- BIOMOD_Modeling(
     biomod_data4layers,
-    modeling.id = "teste31", 
+    modeling.id = "teste33", 
     models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'), 
     CV.strategy = 'block',
     prevalence = 0.5,
@@ -466,7 +466,7 @@ mean_imp_var_4layers <- aggregate(var_imp ~ expl_var, data = imp_expl4, FUN = me
 mean_imp_var_4layers <- arrange(mean_imp_var_4layers, desc(var_imp))
 
 # Salvar importância das variáveis
-write.csv(mean_imp_var_4layers, file.path(output_dir, "var_importance_4layers_teste31.csv"), row.names = FALSE)
+write.csv(mean_imp_var_4layers, file.path(output_dir, "var_importance_4layers_teste33.csv"), row.names = FALSE)
 
 cat("Importância das variáveis (modelos individuais):\n")
 print(mean_imp_var_4layers)
