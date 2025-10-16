@@ -29,11 +29,11 @@ library(dplyr)
 ## Occurrence data
 occurence <- read.csv("C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All.csv")
 coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
-resp.var <- rep(1, 301)
+resp.var <- rep(1, 300)
 sp <- SpatialPoints(coords, proj4string = CRS("EPSG:4326"))
 
 occ_data <- data.frame(
-  species = rep("Vampyrum_spectrum", 301),
+  species = rep("Vampyrum_spectrum", 300),
   lon = c(coords$x),
   lat = c(coords$y)
 )
@@ -90,7 +90,7 @@ biomod_data <- BIOMOD_FormatingData(
   expl.var = env_data,
   resp.xy = coords,
   PA.nb.rep = 5,
-  PA.nb.absences = 700,
+  PA.nb.absences = 600,
   PA.strategy = "random",
   filter.raster = TRUE,
   resp.name = "Vampyrum.spectrum"
