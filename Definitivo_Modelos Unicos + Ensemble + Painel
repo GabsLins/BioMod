@@ -574,7 +574,7 @@ cat("Gerando projeção do ensemble...\n")
 
 myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble_4layers,
-  proj.name = "ensemble_teste31",
+  proj.name = "ensemble_teste33",
   models.chosen = "all",
   new.env = env_data4layers,
   binary.meth = c('TSS','ROC'),
@@ -585,7 +585,7 @@ myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
 saveRDS(myBiomodEnsembleProj, file.path(output_dir, "ensemble_projection_4layers_teste33.rds"))
 
 # Salvar raster do ensemble
-ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble_teste33", "proj_ensemble_teste31_Vampyrum.spectrum_ensemble.tif"))
+ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble_teste33", "proj_ensemble_teste33_Vampyrum.spectrum_ensemble.tif"))
 writeRaster(ensemble_raster, file.path(output_dir, "ensemble_projection_4layers_teste33.tif"), overwrite = TRUE)
 
 cat("Projeção do ensemble salva com sucesso!\n")
