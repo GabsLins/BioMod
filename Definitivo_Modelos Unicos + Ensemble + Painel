@@ -1383,22 +1383,84 @@ variables_grid_side <- wrap_plots(variable_side_panels, ncol = 2, nrow = 2) +
   )
 
 # 4. VIOLIN PLOTS DE CONFIABILIDADE DOS MODELOS (compactos)
+# ======================================================
+# AVALIAÇÃO REAL DOS MODELOS (BIOMOD2) - VIOLIN PLOTS
+# ======================================================
+
+library(biomod2)
+library(terra)
+library(dplyr)
+library(ggplot2)
+library(viridis)
+library(patchwork)
+
+# ------------------------------------------------------
+# EXTRAIR AVALIAÇÕES REAIS DOS MODELOS
+# ------------------------------------------------------
+cat("Extraindo métricas TSS e ROC dos modelos...\n")
+
+# Certifique-se de ter carregado os objetos previamente:
+# models_4layers <- readRDS(".../models_4layers_teste33.rds")
+# ensemble_4layers <- readRDS(".../ensemble_4layers_teste33.rds")
+
+model_evals <- get_evaluations(models_4layers)
+
+# Caso o get_evaluations retorne um data.frame (estrutura moderna)
+# Ele deve conter as colunas: algo, metric.eval e validation
+
+# ------------------------------------------------------
+# PREPARAR OS DADOS PARA PLOTAGEM
+# ------------------------------------------------------
+# Filtra apenas as métricas TSS e ROC, que são as que nos interessam
+combined_data <- model_evals %>%
+  filter(metric.eval %in% c("TSS", "ROC")) %>%
+  select(Modelo = algo, Métrica = metric.eval, Valor = validation) %>%
+  filter(!is.na(Valor)) %>%
+  mutate(
+    Modelo = factor(Modelo, levels = c("GLM", "GAM", "GBM", "RF", "MAXENT")),
+    Métrica = factor(Métrica, levels = c("TSS", "ROC"))
+  )
+
+cat("✅ Métricas combinadas extraídas com sucesso.\n")
+print(head(combined_data))
+
+# ------------------------------------------------------
+# ADICIONAR AVALIAÇÃO DO ENSEMBLE
+# ------------------------------------------------------
+ensemble_evals <- get_evaluations(ensemble_4layers)
+
+ensemble_tss <- tryCatch({
+  as.numeric(ensemble_evals["TSS", "Testing.data", , , "EMmean"])
+}, error = function(e) NA)
+
+ensemble_roc <- tryCatch({
+  as.numeric(ensemble_evals["ROC", "Testing.data", , , "EMmean"])
+}, error = function(e) NA)
+
+ensemble_data <- data.frame(
+  Modelo = "Ensemble",
+  Métrica = c("TSS", "ROC"),
+  Valor = c(ensemble_tss, ensemble_roc)
+)
+
+# Juntar ensemble com os outros modelos
+combined_data <- rbind(combined_data, ensemble_data)
+
+# ------------------------------------------------------
+# FUNÇÃO PARA CRIAR OS VIOLIN PLOTS COMPACTOS
+# ------------------------------------------------------
 create_compact_evaluation_plot <- function(data, metric) {
-  plot_data <- data[data$Métrica == metric, ]
+  plot_data <- data %>% filter(Métrica == metric)
   
-  # Calcular estatísticas
   stats <- plot_data %>% 
     group_by(Modelo) %>% 
-    summarise(
-      media = mean(Valor, na.rm = TRUE),
-      n = n()
-    )
+    summarise(media = mean(Valor, na.rm = TRUE))
   
   ggplot(plot_data, aes(x = Modelo, y = Valor, fill = Modelo)) +
     geom_violin(alpha = 0.7, trim = TRUE, width = 0.8) +
     geom_boxplot(width = 0.2, alpha = 0.9, outlier.size = 1) +
     geom_jitter(width = 0.1, alpha = 0.4, size = 1) +
-    stat_summary(fun = mean, geom = "point", shape = 23, size = 2.5, 
+    stat_summary(fun = mean, geom = "point", shape = 23, size = 2.5,
                  fill = "white", color = "black") +
     scale_fill_viridis_d(option = "magma", alpha = 0.8) +
     theme_minimal() +
@@ -1414,22 +1476,37 @@ create_compact_evaluation_plot <- function(data, metric) {
       legend.position = "none"
     ) +
     ylim(0, 1) +
-    # Adicionar valores médios
-    geom_text(data = stats, 
-              aes(x = Modelo, y = 0.1, label = sprintf("%.3f", media)),
+    geom_text(data = stats,
+              aes(x = Modelo, y = 0.05, label = sprintf("%.3f", media)),
               vjust = -0.5, size = 3.5, fontface = "bold", color = "black")
 }
 
-# Criar avaliações compactas
+# ------------------------------------------------------
+# CRIAR E COMBINAR OS GRÁFICOS
+# ------------------------------------------------------
 tss_compact <- create_compact_evaluation_plot(combined_data, "TSS")
 roc_compact <- create_compact_evaluation_plot(combined_data, "ROC")
 
-# Combinar avaliações lado a lado
 evaluation_side <- tss_compact | roc_compact +
   plot_annotation(
-    title = "Avaliação da Confiabilidade dos Modelos",
+    title = "Avaliação da Confiabilidade dos Modelos (TSS e ROC)",
     theme = theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 14))
   )
+
+print(evaluation_side)
+
+# ------------------------------------------------------
+# SALVAR O RESULTADO
+# ------------------------------------------------------
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_Teste33_ensemble"
+
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
+ggsave(file.path(output_dir, "Avaliação_Compacta_TSS_ROC_teste33.png"),
+       evaluation_side, width = 12, height = 6, dpi = 300)
+
+cat("✅ Gráfico salvo com sucesso em:", output_dir, "\n")
+
 
 # 5. PAINEL FINAL CORRIGIDO - LAYOUT ORGANIZADO
 # Estrutura:
