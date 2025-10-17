@@ -713,12 +713,19 @@ occ_concave_hull_clipped <- st_intersection(occ_concave_hull, st_union(america_c
 cat("✅ Polígono azul recortado pelos limites continentais\n")
 
 # ============================
-# 5. CALCULAR SOBREPOSIÇÃO
+# 5. CALCULAR SOBREPOSIÇÃO E ÁREAS
 # ============================
 
 intersection_area <- tryCatch({
     result <- st_intersection(iucn_vampyrum, occ_concave_hull_clipped)
     if(nrow(result) > 0 && !all(st_is_empty(result))) result else NULL
+}, error = function(e) {
+    NULL
+})
+
+# Calcular área de NÃO sobreposição (área expandida)
+area_diff <- tryCatch({
+    st_difference(occ_concave_hull_clipped, st_union(iucn_vampyrum))
 }, error = function(e) {
     NULL
 })
@@ -749,10 +756,10 @@ cat("• Registros dentro da IUCN:", registros_dentro, "(", round(percentual_den
 cat("• Registros fora da IUCN:", registros_fora, "(", round(percentual_fora, 1), "%)\n")
 
 # ============================
-# 7. CALCULAR ÁREAS PARA O MAPA
+# 7. CALCULAR ÁREAS CORRETAMENTE
 # ============================
 
-# Calcular métricas de expansão
+# Calcular métricas de área
 area_iucn_km2 <- as.numeric(sum(st_area(iucn_vampyrum))) / 1e6
 area_coletada_km2 <- as.numeric(st_area(occ_concave_hull_clipped)) / 1e6
 
@@ -762,8 +769,35 @@ if(!is.null(intersection_area) && nrow(intersection_area) > 0) {
     area_sobreposicao_km2 <- 0
 }
 
-area_expandida_km2 <- max(0, area_coletada_km2 - area_sobreposicao_km2)
+# CORREÇÃO: Área expandida é a área de NÃO sobreposição
+if(!is.null(area_diff) && length(area_diff) > 0 && !all(st_is_empty(area_diff))) {
+    area_expandida_km2 <- as.numeric(sum(st_area(area_diff))) / 1e6
+} else {
+    area_expandida_km2 <- area_coletada_km2 - area_sobreposicao_km2
+}
+
+# CORREÇÃO: Área total final = IUCN + Área Expandida
+area_total_final_km2 <- area_iucn_km2 + area_expandida_km2
+
+# Garantir que não temos valores negativos
+area_expandida_km2 <- max(0, area_expandida_km2)
+area_total_final_km2 <- max(area_iucn_km2, area_total_final_km2)
+
 expansao_percentual <- ifelse(area_iucn_km2 > 0, (area_expandida_km2 / area_iucn_km2) * 100, 0)
+
+# Calcular aumento total percentual
+aumento_total_percentual <- ifelse(area_iucn_km2 > 0, ((area_total_final_km2 - area_iucn_km2) / area_iucn_km2) * 100, 0)
+
+# VERIFICAÇÃO DOS CÁLCULOS
+cat("📐 CÁLCULOS DE ÁREA (CORRIGIDOS):\n")
+cat("• Área IUCN conhecida:", round(area_iucn_km2, 0), "km²\n")
+cat("• Área coletada:", round(area_coletada_km2, 0), "km²\n")
+cat("• Área de sobreposição:", round(area_sobreposicao_km2, 0), "km²\n")
+cat("• Área expandida (NÃO sobreposição):", round(area_expandida_km2, 0), "km²\n")
+cat("• Área TOTAL FINAL (IUCN + Expandida):", round(area_total_final_km2, 0), "km²\n")
+cat("• Verificação: IUCN + Expandida =", round(area_iucn_km2 + area_expandida_km2, 0), "km² ✓\n")
+cat("• Expansão da área conhecida:", round(expansao_percentual, 1), "%\n")
+cat("• Aumento total da área:", round(aumento_total_percentual, 1), "%\n")
 
 # ============================
 # 8. CRIAR MAPA COMPARATIVO COM INFORMAÇÕES DE ÁREA
@@ -774,13 +808,15 @@ cat("Criando mapa comparativo...\n")
 # Criar anotações de área para o mapa
 area_annotations <- data.frame(
     x = -110,
-    y = c(25, 20, 15),
+    y = c(25, 20, 15, 10, 5),
     label = c(
         paste("Área IUCN:", round(area_iucn_km2, 0), "km²"),
-        paste("Área Coletada:", round(area_coletada_km2, 0), "km²"), 
-        paste("Área Expandida:", round(area_expandida_km2, 0), "km²")
+        paste("Área Coletada:", round(area_coletada_km2, 0), "km²"),
+        paste("Sobreposição:", round(area_sobreposicao_km2, 0), "km²"),
+        paste("Área Expandida:", round(area_expandida_km2, 0), "km²"),
+        paste("Área TOTAL:", round(area_total_final_km2, 0), "km²")
     ),
-    color = c("red", "blue", "darkgreen")
+    color = c("red", "blue", "purple", "darkgreen", "black")
 )
 
 final_map <- ggplot() +
@@ -794,7 +830,11 @@ final_map <- ggplot() +
     
     # Área de sobreposição
     {if(!is.null(intersection_area) && nrow(intersection_area) > 0 && !all(st_is_empty(intersection_area)))
-        geom_sf(data = intersection_area, fill = "lightgreen", alpha = 0.5, color = "lightgreen", size = 1)} +
+        geom_sf(data = intersection_area, fill = "purple", alpha = 0.6, color = "purple", size = 1)} +
+    
+    # Área expandida (não sobreposição)
+    {if(!is.null(area_diff) && length(area_diff) > 0 && !all(st_is_empty(area_diff)))
+        geom_sf(data = area_diff, fill = "darkgreen", alpha = 0.4, color = "darkgreen", size = 1)} +
     
     # Pontos de ocorrência (cores diferentes para dentro/fora IUCN)
     geom_sf(data = occ_sf %>% filter(dentro_iucn), 
@@ -805,7 +845,7 @@ final_map <- ggplot() +
     # Anotações de área
     geom_label(data = area_annotations, 
                aes(x = x, y = y, label = label, fill = color),
-               color = "white", fontface = "bold", size = 4,
+               color = "white", fontface = "bold", size = 3.2,
                alpha = 0.8, show.legend = FALSE) +
     scale_fill_identity() +
     
@@ -815,13 +855,14 @@ final_map <- ggplot() +
     
     labs(
         title = "DISTRIBUIÇÃO: Vampyrum spectrum",
-        subtitle = paste("Comparação entre distribuição IUCN conhecida e dados coletados em campo"),
-        caption = "Área Vermelha: IUCN | Área Azul: Área Coletada | Pontos Vermelhos: Registros dentro da distribuição conhecida pela IUCN | Pontos Azuis: Registros fora da distribuição conhecida pela IUCN"
+        subtitle = "Comparação entre distribuição IUCN conhecida e dados coletados em campo",
+        caption = "Vermelho: IUCN | Azul: Área Coletada | Roxo: Sobreposição | Verde: Área Expandida\nPontos Vermelhos: Registros dentro da IUCN | Pontos Azuis: Registros fora da IUCN"
     ) +
     theme_minimal() +
     theme(
         plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
         plot.subtitle = element_text(size = 12, hjust = 0.5),
+        plot.caption = element_text(size = 10, hjust = 0.5),
         legend.position = "none"
     )
 
@@ -837,17 +878,17 @@ dados_sobreposicao <- data.frame(
     Cor = c("#1f77b4", "#ff7f0e")
 )
 
-dados_expansao <- data.frame(
-    Categoria = c("Área IUCN Conhecida", "Área Expandida"),
-    Area_km2 = c(area_iucn_km2, area_expandida_km2),
-    Cor = c("#d62728", "#2ca02c")
+dados_area <- data.frame(
+    Categoria = c("Área IUCN", "Área Coletada", "Sobreposição", "Área Expandida", "Área Total"),
+    Area_km2 = c(area_iucn_km2, area_coletada_km2, area_sobreposicao_km2, area_expandida_km2, area_total_final_km2),
+    Cor = c("#d62728", "#1f77b4", "#9467bd", "#2ca02c", "#000000")
 )
 
 # Gráfico de barras - registros
 grafico_barras <- ggplot(dados_sobreposicao, aes(x = Categoria, y = Quantidade, fill = Categoria)) +
     geom_bar(stat = "identity", alpha = 0.8, width = 0.6) +
     geom_text(aes(label = paste(Quantidade, "\nregistros")), 
-              vjust = -0.3, size = 4.5, fontface = "bold", lineheight = 0.8) +
+              vjust = -0.3, size = 4, fontface = "bold", lineheight = 0.8) +
     scale_fill_manual(values = c("Dentro da IUCN" = "#1f77b4", "Fora da IUCN" = "#ff7f0e")) +
     labs(
         title = "REGISTROS EM RELAÇÃO À IUCN",
@@ -856,13 +897,13 @@ grafico_barras <- ggplot(dados_sobreposicao, aes(x = Categoria, y = Quantidade, 
     ) +
     theme_minimal() +
     theme(
-        plot.title = element_text(face = "bold", size = 13, hjust = 0.5, margin = margin(b = 10)),
-        axis.text = element_text(size = 11),
-        axis.title = element_text(size = 11),
+        plot.title = element_text(face = "bold", size = 12, hjust = 0.5, margin = margin(b = 10)),
+        axis.text = element_text(size = 10),
+        axis.title = element_text(size = 10),
         legend.position = "none",
-        plot.margin = margin(10, 20, 10, 20)
+        plot.margin = margin(10, 15, 10, 15)
     ) +
-    ylim(0, max(dados_sobreposicao$Quantidade) * 1.25)
+    ylim(0, max(dados_sobreposicao$Quantidade) * 1.3)
 
 # Gráfico de pizza
 grafico_pizza <- ggplot(dados_sobreposicao, aes(x = "", y = Porcentagem, fill = Categoria)) +
@@ -870,7 +911,7 @@ grafico_pizza <- ggplot(dados_sobreposicao, aes(x = "", y = Porcentagem, fill = 
     coord_polar("y", start = 0) +
     geom_text(aes(label = paste0(round(Porcentagem, 1), "%")), 
               position = position_stack(vjust = 0.5), 
-              size = 6, fontface = "bold", color = "white") +
+              size = 5, fontface = "bold", color = "white") +
     scale_fill_manual(values = c("Dentro da IUCN" = "#1f77b4", "Fora da IUCN" = "#ff7f0e")) +
     labs(
         title = "DISTRIBUIÇÃO PERCENTUAL",
@@ -878,34 +919,36 @@ grafico_pizza <- ggplot(dados_sobreposicao, aes(x = "", y = Porcentagem, fill = 
     ) +
     theme_void() +
     theme(
-        plot.title = element_text(face = "bold", size = 13, hjust = 0.5, margin = margin(b = 10)),
+        plot.title = element_text(face = "bold", size = 12, hjust = 0.5, margin = margin(b = 10)),
         legend.position = "bottom",
-        legend.text = element_text(size = 11),
-        plot.margin = margin(10, 20, 10, 20)
+        legend.text = element_text(size = 10),
+        plot.margin = margin(10, 15, 10, 15)
     )
 
-# Gráfico de expansão de área
-grafico_expansao <- ggplot(dados_expansao, aes(x = Categoria, y = Area_km2, fill = Categoria)) +
+# Gráfico de áreas
+grafico_area <- ggplot(dados_area, aes(x = reorder(Categoria, -Area_km2), y = Area_km2, fill = Categoria)) +
     geom_bar(stat = "identity", alpha = 0.8, width = 0.6) +
     geom_text(aes(label = paste0(round(Area_km2, 0), "\nkm²")), 
-              vjust = -0.3, size = 4.5, fontface = "bold", lineheight = 0.8) +
-    scale_fill_manual(values = c("Área IUCN Conhecida" = "#d62728", "Área Expandida" = "#2ca02c")) +
+              vjust = -0.3, size = 3.2, fontface = "bold", lineheight = 0.8) +
+    scale_fill_manual(values = c("Área IUCN" = "#d62728", "Área Coletada" = "#1f77b4", 
+                                "Sobreposição" = "#9467bd", "Área Expandida" = "#2ca02c",
+                                "Área Total" = "#000000")) +
     labs(
-        title = "EXPANSÃO DA ÁREA CONHECIDA",
-        subtitle = paste("Ganho de área:", round(expansao_percentual, 1), "%"),
+        title = "COMPARAÇÃO DE ÁREAS",
+        subtitle = paste("Aumento total:", round(aumento_total_percentual, 1), "%"),
         x = "",
         y = "Área (km²)"
     ) +
     theme_minimal() +
     theme(
-        plot.title = element_text(face = "bold", size = 13, hjust = 0.5, margin = margin(b = 5)),
-        plot.subtitle = element_text(size = 11, hjust = 0.5, face = "italic", margin = margin(b = 10)),
-        axis.text = element_text(size = 11),
-        axis.title = element_text(size = 11),
+        plot.title = element_text(face = "bold", size = 12, hjust = 0.5, margin = margin(b = 5)),
+        plot.subtitle = element_text(size = 10, hjust = 0.5, face = "italic", margin = margin(b = 8)),
+        axis.text = element_text(size = 9, angle = 15, hjust = 1),
+        axis.title = element_text(size = 10),
         legend.position = "none",
-        plot.margin = margin(10, 20, 10, 20)
+        plot.margin = margin(10, 15, 10, 15)
     ) +
-    ylim(0, max(dados_expansao$Area_km2) * 1.25)
+    ylim(0, max(dados_area$Area_km2) * 1.3)
 
 # ============================
 # 10. CRIAR PAINEL ORGANIZADO COM MELHOR ESPAÇAMENTO
@@ -916,24 +959,25 @@ cat("Criando painel organizado...\n")
 # Layout melhorado com mais espaçamento
 painel_completo <- 
     final_map + 
-    (grafico_barras / grafico_pizza / grafico_expansao) +
-    plot_layout(ncol = 2, widths = c(1.2, 0.8)) +
+    (grafico_barras / grafico_pizza / grafico_area) +
+    plot_layout(ncol = 2, widths = c(1.3, 0.7)) +
     plot_annotation(
         title = "ANÁLISE DA DISTRIBUIÇÃO DE Vampyrum spectrum: DADOS IUCN VS COLETADOS EM CAMPO",
         subtitle = paste(
-            "Registros dentro da área IUCN:", registros_dentro, "|",
-            "Registros fora da área IUCN conhecida:", registros_fora, "|",
-            "Expansão de área:", round(expansao_percentual, 1), "%"
+            "Registros dentro da IUCN:", registros_dentro, "|",
+            "Registros fora da IUCN:", registros_fora, "|",
+            "Área total conhecida:", round(area_total_final_km2, 0), "km²"
         ),
         caption = paste(
-            "Total de registros analisados:", total_registros, "|",
-            "Área IUCN:", round(area_iucn_km2, 0), "km² |",
-            "Área expandida:", round(area_expandida_km2, 0), "km²"
+            "Total de registros:", total_registros, "|",
+            "Área IUCN inicial:", round(area_iucn_km2, 0), "km² |",
+            "Expansão:", round(expansao_percentual, 1), "% |",
+            "Aumento total:", round(aumento_total_percentual, 1), "%"
         ),
         theme = theme(
-            plot.title = element_text(face = "bold", size = 18, hjust = 0.5, margin = margin(b = 10)),
-            plot.subtitle = element_text(size = 14, hjust = 0.5, margin = margin(b = 15)),
-            plot.caption = element_text(size = 12, hjust = 0.5, face = "italic", margin = margin(t = 15)),
+            plot.title = element_text(face = "bold", size = 16, hjust = 0.5, margin = margin(b = 10)),
+            plot.subtitle = element_text(size = 13, hjust = 0.5, margin = margin(b = 12)),
+            plot.caption = element_text(size = 11, hjust = 0.5, face = "italic", margin = margin(t = 12)),
             plot.margin = margin(20, 20, 20, 20)
         )
     )
@@ -946,7 +990,7 @@ print(painel_completo)
 
 # Salvar painel completo
 ggsave(
-    file.path(output_dir, "Analise_Completa_Distribuicao2.png"),
+    file.path(output_dir, "Analise_Completa_Distribuicao_Final.png"),
     painel_completo,
     width = 20,
     height = 12,
@@ -955,7 +999,7 @@ ggsave(
 
 # Salvar mapa individual
 ggsave(
-    file.path(output_dir, "Mapa_Comparativo_Areas2.png"),
+    file.path(output_dir, "Mapa_Comparativo_Final.png"),
     final_map,
     width = 14,
     height = 10,
@@ -975,20 +1019,23 @@ cat("   • Total de registros analisados:", total_registros, "\n")
 cat("   • Registros dentro da área IUCN conhecida:", registros_dentro, "(", round(percentual_dentro, 1), "%)\n")
 cat("   • Registros fora da área IUCN conhecida:", registros_fora, "(", round(percentual_fora, 1), "%)\n\n")
 
-cat("🗺️  ANÁLISE DE ÁREA:\n")
+cat("🗺️  ANÁLISE DE ÁREA (FINAL):\n")
 cat("   • Área de distribuição IUCN conhecida:", round(area_iucn_km2, 0), "km²\n")
 cat("   • Área coberta pelos dados coletados:", round(area_coletada_km2, 0), "km²\n")
-cat("   • Área de sobreposição entre IUCN e dados coletados:", round(area_sobreposicao_km2, 0), "km²\n")
-cat("   • Área expandida além da IUCN conhecida:", round(area_expandida_km2, 0), "km²\n")
-cat("   • Expansão percentual da área conhecida:", round(expansao_percentual, 1), "%\n\n")
+cat("   • Área de SOBREPOSIÇÃO (IUCN ∩ Coletada):", round(area_sobreposicao_km2, 0), "km²\n")
+cat("   • Área EXPANDIDA (NÃO sobreposição):", round(area_expandida_km2, 0), "km²\n")
+cat("   • Área TOTAL FINAL (IUCN + Expandida):", round(area_total_final_km2, 0), "km²\n")
+cat("   • Expansão da área conhecida:", round(expansao_percentual, 1), "%\n")
+cat("   • Aumento total da área conhecida:", round(aumento_total_percentual, 1), "%\n\n")
 
 cat("📁 ARQUIVOS GERADOS:\n")
-cat("   • Analise_Completa_Distribuicao.png (painel completo)\n")
-cat("   • Mapa_Comparativo_Areas.png (mapa com informações de área)\n\n")
+cat("   • Analise_Completa_Distribuicao_Final.png (painel completo)\n")
+cat("   • Mapa_Comparativo_Final.png (mapa final)\n\n")
 
 cat("💡 CONTRIBUIÇÃO DO ESTUDO:\n")
 cat("   • Identificou", registros_fora, "registros (", round(percentual_fora, 1), "%) fora da distribuição IUCN conhecida\n")
 cat("   • Expandiu a área de ocorrência conhecida em", round(expansao_percentual, 1), "%\n")
-cat("   • Fornece dados importantes para atualização dos mapas de distribuição da espécie\n")
+cat("   • Aumentou a área total conhecida em", round(aumento_total_percentual, 1), "%\n")
+cat("   • Área total conhecida aumentou de", round(area_iucn_km2, 0), "km² para", round(area_total_final_km2, 0), "km²\n")
 
 cat(rep("=", 80), "\n")
