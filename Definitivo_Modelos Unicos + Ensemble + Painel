@@ -27,7 +27,7 @@ library(dplyr)
 
 ###### ALL LAYERS
 ## Occurrence data
-occurence <- read.csv("C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All.csv")
+occurence <- read.csv("C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All2.csv")
 coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
 resp.var <- rep(1, 295)
 sp <- SpatialPoints(coords, proj4string = CRS("EPSG:4326"))
@@ -335,7 +335,7 @@ cat("Diretório de saída:", output_dir, "\n")
 # ============================
 
 ## Occurrence data
-occurence <- read.csv("C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All.csv")
+occurence <- read.csv("C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All2.csv")
 coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
 resp.var <- rep(1, 295)
 sp <- SpatialPoints(coords, proj4string = CRS("EPSG:4326"))
