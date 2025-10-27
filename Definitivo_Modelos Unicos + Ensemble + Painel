@@ -1,6 +1,7 @@
-## TODAS AS VARIAVEIS
+##Biomod2 teste
+#28/10/2025
 
-install.packages(c("biomod2", "sp", "raster", "dplyr"))
+## TODAS AS VARIAVEIS
 
 library(biomod2)
 library(sp)
@@ -15,15 +16,8 @@ library(sf)
 library(patchwork)
 library(rnaturalearth)
 library(rnaturalearthdata)
-
-##Biomod2 teste
-#25/09/2025
-
-library(biomod2)
-library(sp)
-library(raster)
-library(dplyr)
-
+library(kernlab)
+library(reshape2)
 
 ###### ALL LAYERS
 ## Occurrence data
@@ -42,7 +36,7 @@ occ_data <- data.frame(
 library(raster)
 
 # Carregando as camadas
-bioclimaticvar <- raster("C:/Users/Administrador/Desktop/GAB/Mod/precipitacao_media_anual.tif")
+precipBIO12 <- raster("C:/Users/Administrador/Desktop/GAB/Mod/precipitacao_media_anual.tif")
 maxtemperature <- raster("C:/Users/Administrador/Desktop/GAB/Mod/media_anual_tmax_C.tif")
 meantemperature <- raster("C:/Users/Administrador/Desktop/GAB/Mod/media_anual_tavg_C.tif")
 mintemperature <- raster("C:/Users/Administrador/Desktop/GAB/Mod/media_anual_tmin_C.tif")
@@ -51,6 +45,23 @@ wind <- raster("C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif")
 relevo <- raster("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif")
 NDVI <- raster("C:/Users/Administrador/Desktop/GAB/Mod/NDVI/NDVI_america.tif")
 LAI <- raster("C:/Users/Administrador/Desktop/GAB/Mod/LAI.tif")
+BIO2 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_2.tif")
+BIO3 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_3.tif")
+BIO4 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_4.tif")
+BIO5 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_5.tif")
+BIO6 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_6.tif")
+BIO7 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
+BIO8 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_8.tif")
+BIO9 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_9.tif")
+BIO10 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_10.tif")
+BIO11 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_11.tif")
+BIO13 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_13.tif")
+BIO14 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_14.tif")
+BIO15 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_15.tif")
+BIO16 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_16.tif")
+BIO17 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_17.tif")
+BIO18 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_18.tif")
+BIO19 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_19.tif")
 
 # Definir a nova extensão com os novos limites
 ext_america <- extent(-170, -26, -56, 72)
@@ -58,27 +69,48 @@ ext_america <- extent(-170, -26, -56, 72)
 # Redimensionar e recortar
 res <- 0.1  
 
-bioclimaticvar <- resample(crop(bioclimaticvar, ext_america), bioclimaticvar, method='bilinear')
-maxtemperature <- resample(crop(maxtemperature, ext_america), bioclimaticvar, method='bilinear')
-meantemperature <- resample(crop(meantemperature, ext_america), bioclimaticvar, method='bilinear')
-mintemperature <- resample(crop(mintemperature, ext_america), bioclimaticvar, method='bilinear')
-vaporpressure <- resample(crop(vaporpressure, ext_america), bioclimaticvar, method='bilinear')
-wind <- resample(crop(wind, ext_america), bioclimaticvar, method='bilinear')
-relevo <- resample(crop(relevo, ext_america), bioclimaticvar, method='bilinear')
-NDVI <- resample(crop(NDVI, ext_america), bioclimaticvar, method='bilinear')
-LAI <- resample(crop(LAI, ext_america), bioclimaticvar, method='bilinear')
+precipBIO12 <- resample(crop(precipBIO12, ext_america), precipBIO12, method='bilinear')
+maxtemperature <- resample(crop(maxtemperature, ext_america), precipBIO12, method='bilinear')
+meantemperature <- resample(crop(meantemperature, ext_america), precipBIO12, method='bilinear')
+mintemperature <- resample(crop(mintemperature, ext_america), precipBIO12, method='bilinear')
+vaporpressure <- resample(crop(vaporpressure, ext_america), precipBIO12, method='bilinear')
+wind <- resample(crop(wind, ext_america), precipBIO12, method='bilinear')
+relevo <- resample(crop(relevo, ext_america), precipBIO12, method='bilinear')
+NDVI <- resample(crop(NDVI, ext_america), precipBIO12, method='bilinear')
+LAI <- resample(crop(LAI, ext_america), precipBIO12, method='bilinear')
+BIO2 <- resample(crop(BIO2, ext_america), precipBIO12, method='bilinear')
+BIO3 <- resample(crop(BIO3, ext_america), precipBIO12, method='bilinear')
+BIO4 <- resample(crop(BIO4, ext_america), precipBIO12, method='bilinear')
+BIO5 <- resample(crop(BIO5, ext_america), precipBIO12, method='bilinear')
+BIO6 <- resample(crop(BIO6, ext_america), precipBIO12, method='bilinear')
+BIO7 <- resample(crop(BIO7, ext_america), precipBIO12, method='bilinear')
+BIO8 <- resample(crop(BIO8, ext_america), precipBIO12, method='bilinear')
+BIO9 <- resample(crop(BIO9, ext_america), precipBIO12, method='bilinear')
+BIO10 <- resample(crop(BIO10, ext_america), precipBIO12, method='bilinear')
+BIO11 <- resample(crop(BIO11, ext_america), precipBIO12, method='bilinear')
+BIO13 <- resample(crop(BIO13, ext_america), precipBIO12, method='bilinear')
+BIO14 <- resample(crop(BIO14, ext_america), precipBIO12, method='bilinear')
+BIO15 <- resample(crop(BIO15, ext_america), precipBIO12, method='bilinear')
+BIO16 <- resample(crop(BIO16, ext_america), precipBIO12, method='bilinear')
+BIO17 <- resample(crop(BIO17, ext_america), precipBIO12, method='bilinear')
+BIO18 <- resample(crop(BIO18, ext_america), precipBIO12, method='bilinear')
+BIO19 <- resample(crop(BIO19, ext_america), precipBIO12, method='bilinear')
 
 # CORREÇÃO 1: REMOVER RELEVO MARINHO (valores abaixo de 0m)
 relevo[relevo < 0] <- NA
 
 # CORREÇÃO 2: NOMEAR AS VARIÁVEIS CORRETAMENTE
-env_data <- stack(bioclimaticvar, maxtemperature, meantemperature, mintemperature, 
-                  vaporpressure, wind, relevo, NDVI, LAI)
+env_data <- stack(precipBIO12, maxtemperature, meantemperature, mintemperature, 
+                  vaporpressure, wind, relevo, NDVI, LAI, BIO2, BIO3, BIO4, BIO5,
+                  BIO6, BIO7, BIO8, BIO9, BIO10, BIO11, BIO13, BIO14, BIO15, BIO16, 
+                  BIO17, BIO18, BIO19)
 
 # Atribuir nomes descritivos às variáveis
-names(env_data) <- c("Precipitacao_Anual", "Temperatura_Maxima", "Temperatura_Media", 
+names(env_data) <- c("Precipitacao_Anual_BIO_12", "Temperatura_Maxima", "Temperatura_Media_BIO_1", 
                      "Temperatura_Minima", "Pressao_Vapor", "Vento_Medio", 
-                     "Relevo", "NDVI", "LAI")
+                     "Relevo", "NDVI", "LAI", "BIO_2", "BIO_3", "BIO_4", "BIO_5", 
+                      "BIO_6", "BIO_7", "BIO_8", "BIO_9", "BIO_10", "BIO_11", "BIO_13", 
+                      "BIO_14", "BIO_15", "BIO_16", "BIO_17", "BIO_18", "BIO_19")
 
 # Verificar os nomes
 cat("Variáveis no stack com nomes corrigidos:\n")
@@ -102,17 +134,29 @@ biomod_data <- BIOMOD_FormatingData(
 ## BioMod2 Modeling
 library(ENMeval)
 library(randomForest)
+library(kernlab)
 
 myOptions <- BIOMOD_ModelingOptions(
-  GBM = list(n.trees = 100)
-)
-
-myOptions <- BIOMOD_ModelingOptions(
+  GBM = list(
+    n.trees = 100,
+    interaction.depth = 3,
+    shrinkage = 0.01,
+    bag.fraction = 0.7
+  ),
   RF = list(
     n.trees = 500,
     mtry = 2,
     nodesize = 5,
     maxnodes = 30
+  ),
+  SVM = list(
+    type = "C-classification",
+    kernel = "radial",        # Kernel radial (recomendado para SDM)
+    cost = 1,                 # Parâmetro de custo
+    gamma = 0.1,              # Parâmetro gamma
+    tolerance = 0.001,        # Tolerância de convergência
+    epsilon = 0.1,            # Parâmetro epsilon
+    cross = 5                 # Validação cruzada interna
   )
 )
 
@@ -121,11 +165,13 @@ myOptions <- BIOMOD_ModelingOptions(
 models <- BIOMOD_Modeling(
   biomod_data,
   modeling.id = "current",
-  models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'),
+  models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT', 'SVM'),
   CV.strategy = 'block',
   prevalence = 0.5,
+  DataSplit = 70,
   var.import = 3,
   metric.eval = c('TSS', 'ROC'),
+  models.options = myOptions
 )
 
 
