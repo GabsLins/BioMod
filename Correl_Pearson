@@ -10,15 +10,32 @@ ext_america <- ext(-170, -26, -56, 72)
 
 # Lista específica de arquivos
 raster_files <- c(
-  bioclimaticvar = "C:/Users/tunho/Desktop/GAB/Mod/precipitacao_media_anual.tif",
-  maxtemperature = "C:/Users/tunho/Desktop/GAB/Mod/media_anual_tmax_C.tif", 
-  meantemperature = "C:/Users/tunho/Desktop/GAB/Mod/media_anual_tavg_C.tif",
-  mintemperature = "C:/Users/tunho/Desktop/GAB/Mod/media_anual_tmin_C.tif",
-  meanvaporpressure = "C:/Users/tunho/Desktop/GAB/Mod/meanvaporpressure.tif",
-  wind = "C:/Users/tunho/Desktop/GAB/Mod/wind_media_anual.tif",
-  relevo = "C:/Users/tunho/Desktop/GAB/Mod/output_GMRT.tif",
-  NDVI = "C:/Users/tunho/Desktop/GAB/Mod/NDVI/NDVI_america.tif",
-  LAI = "C:/Users/tunho/Desktop/GAB/Mod/LAI.tif"
+  precipBIO12 = "C:/Users/Administrador/Desktop/GAB/Mod/precipitacao_media_anual.tif",
+  maxtemperature = "C:/Users/Administrador/Desktop/GAB/Mod/media_anual_tmax_C.tif",
+  meantemperature = "C:/Users/Administrador/Desktop/GAB/Mod/media_anual_tavg_C.tif",
+  mintemperature = "C:/Users/Administrador/Desktop/GAB/Mod/media_anual_tmin_C.tif",
+  vaporpressure = "C:/Users/Administrador/Desktop/GAB/Mod/meanvaporpressure.tif",
+  wind = "C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif",
+  relevo = "C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif",
+  NDVI = "C:/Users/Administrador/Desktop/GAB/Mod/NDVI/NDVI_america.tif",
+  LAI = "C:/Users/Administrador/Desktop/GAB/Mod/LAI.tif",
+  BIO2 = "C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_2.tif",
+  BIO3 = "C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_3.tif",
+  BIO4 = "C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_4.tif",
+  BIO5 = "C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_5.tif",
+  BIO6 = "C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_6.tif",
+  BIO7 = "C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif",
+  BIO8 = "C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_8.tif",
+  BIO9 = "C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_9.tif",
+  BIO10 = "C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_10.tif",
+  BIO11 = "C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_11.tif",
+  BIO13 = "C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_13.tif",
+  BIO14 = "C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_14.tif",
+  BIO15 = "C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_15.tif",
+  BIO16 = "C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_16.tif",
+  BIO17 = "C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_17.tif",
+  BIO18 = "C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_18.tif",
+  BIO19 = "C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_19.tif"
 )
 
 # Verificar quais arquivos existem
@@ -125,12 +142,10 @@ print(paste("Tabela salva com sucesso em:", output_file))
 
 ### ETAPA 2 - ANÁLISE DE CORRELAÇÃO E SALVAR CSV DA MATRIZ
 
-pointsample <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/pointsample11.csv")
+pointsample <- read.csv("C:/Users/tunho/Desktop/GAB/Mod/pointsample12_26var.csv")
 
 # Selecionar as 8 variáveis específicas
-variaveis_desejadas <- c("bioclimaticvar", "maxtemperature", "meantemperature", 
-                         "mintemperature", "meanvaporpressure", "wind", "relevo", "NDVI", "LAI")
-
+variaveis_desejadas <- c("precipBIO12", "maxtemperature", "meantemperature", "mintemperature", "vaporpressure", "wind", "relevo", "NDVI", "LAI", "BIO2", "BIO3", "BIO4", "BIO5", "BIO6", "BIO7", "BIO8", "BIO9", "BIO10", "BIO11", "BIO13", "BIO14", "BIO15", "BIO16", "BIO17", "BIO18", "BIO19")
 variaveis_presentes <- variaveis_desejadas[variaveis_desejadas %in% names(pointsample)]
 
 print("Variáveis para análise de correlação:")
@@ -144,7 +159,7 @@ if(length(variaveis_presentes) > 1) {
   print(round(cor_matrix, 3))
   
   # SALVAR A MATRIZ DE CORRELAÇÃO COMO CSV
-  matriz_cor_file <- file.path(base_path, "matriz_correlacao_correl_11.csv")
+  matriz_cor_file <- file.path(base_path, "matriz_correlacao_correl_12_26var.csv")
   write.csv(cor_matrix, matriz_cor_file, row.names = TRUE)
   print(paste("Matriz de correlação salva em:", matriz_cor_file))
   
@@ -167,7 +182,7 @@ if(length(variaveis_presentes) > 1) {
       Correlacao = cor_matrix[high_corr]
     )
     
-    correlated_file <- file.path(base_path, "pares_correlacionados_correl_11.csv")
+    correlated_file <- file.path(base_path, "pares_correlacionados_correl_12_26var.csv")
     write.csv(correlated_pairs, correlated_file, row.names = FALSE)
     print(paste("Pares correlacionados salvos em:", correlated_file))
     
