@@ -135,7 +135,7 @@ result <- points_df
 result[, names(env_stack)] <- points_env[, -1]  # Adiciona as variáveis com os nomes corretos
 
 # Salvar o resultado
-output_file <- file.path(base_path, "pointsample11.csv")
+output_file <- file.path(base_path, "pointsample12_26var.csv")
 write.csv(result, output_file, row.names = FALSE)
 
 print(paste("Tabela salva com sucesso em:", output_file))
