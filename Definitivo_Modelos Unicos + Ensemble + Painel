@@ -149,29 +149,20 @@ myOptions <- BIOMOD_ModelingOptions(
     nodesize = 5,
     maxnodes = 30
   ),
-  SVM = list(
-    type = "C-classification",
-    kernel = "radial",        # Kernel radial (recomendado para SDM)
-    cost = 1,                 # Parâmetro de custo
-    gamma = 0.1,              # Parâmetro gamma
-    tolerance = 0.001,        # Tolerância de convergência
-    epsilon = 0.1,            # Parâmetro epsilon
-    cross = 5                 # Validação cruzada interna
-  )
 )
 
 ## Se precisar baixar o java: https://github.com/ojdkbuild/ojdkbuild/releases/latest , o arquivo e o x86_64.zip
 
 models <- BIOMOD_Modeling(
-  biomod_data,
+  bm.format = biomod_data,
   modeling.id = "current",
-  models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT', 'SVM'),
+  models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'),
+  bm.options = myOptions,
   CV.strategy = 'block',
+  CV.nb.rep = 3,
   prevalence = 0.5,
-  DataSplit = 70,
   var.import = 3,
   metric.eval = c('TSS', 'ROC'),
-  models.options = myOptions
 )
 
 
