@@ -94,7 +94,7 @@ print("Stack final preparado:")
 print(env_stack)
 
 # Carregar pontos de ocorrência
-points_file <- file.path(base_path, "Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All.csv")
+points_file <- file.path(base_path, "Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All2.csv")
 
 if(!file.exists(points_file)) {
   csv_files <- list.files(base_path, pattern = "\\.csv$", full.names = TRUE)
