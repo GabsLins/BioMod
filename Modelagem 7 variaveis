@@ -352,36 +352,36 @@ cat("Dados de ocorrência carregados:", nrow(occ_data), "registros\n")
 
 ## Environmental data
 vaporpressure <- raster("C:/Users/Administrador/Desktop/GAB/Mod/meanvaporpressure.tif")
-relevo <- raster("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif")
-bioclimaticvar <- raster("C:/Users/Administrador/Desktop/GAB/Mod/precipitacao_media_anual.tif")
 wind <- raster("C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif")
+relevo <- raster("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif")
+BIO7 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
 
-# Definir a nova extensão
+# Definir a nova extensão com os novos limites
 ext_america <- extent(-170, -26, -56, 72)
 
 # Redimensionar e recortar
 res <- 0.1  
 
-vaporpressure <- resample(crop(vaporpressure, ext_america), bioclimaticvar, method='bilinear')
-relevo <- resample(crop(relevo, ext_america), bioclimaticvar, method='bilinear')
-bioclimaticvar <- resample(crop(bioclimaticvar, ext_america), bioclimaticvar, method='bilinear')
-wind <- resample(crop(wind, ext_america), bioclimaticvar, method='bilinear')
+vaporpressure <- resample(crop(vaporpressure, ext_america), BIO7, method='bilinear')
+wind <- resample(crop(wind, ext_america), BIO7, method='bilinear')
+relevo <- resample(crop(relevo, ext_america), BIO7, method='bilinear')
+BIO7 <- resample(crop(BIO7, ext_america), BIO7, method='bilinear')
 
 # CORREÇÃO: REMOVER RELEVO MARINHO
 relevo[relevo < 0] <- NA
 
 # Nomear as variáveis corretamente
-env_data4layers <- stack(vaporpressure, relevo, bioclimaticvar, wind)
-names(env_data4layers) <- c("Pressao_Vapor", "Relevo", "Precipitacao_Anual", "Vento_Medio")
+env_data4layers <- stack(vaporpressure, wind, relevo, BIO7)
+names(env_data4layers) <- c("Pressao_Vapor", "Vento", "Relevo", "Variacao_de_Temperatura")
 
 cat("Variáveis ambientais carregadas:\n")
 print(names(env_data4layers))
 
 # Salvar variáveis processadas
 writeRaster(vaporpressure, file.path(output_dir, "vaporpressure_processado_teste39.tif"), overwrite = TRUE)
-writeRaster(relevo, file.path(output_dir, "relevo_processado_teste39.tif"), overwrite = TRUE)
-writeRaster(bioclimaticvar, file.path(output_dir, "precipitacao_processado_teste39.tif"), overwrite = TRUE)
 writeRaster(wind, file.path(output_dir, "wind_processado_teste39.tif"), overwrite = TRUE)
+writeRaster(relevo, file.path(output_dir, "relevo_processado_teste39.tif"), overwrite = TRUE)
+writeRaster(BIO7, file.path(output_dir, "BIO7_processado_teste39.tif"), overwrite = TRUE)
 
 # ============================
 # MODELAGEM BIOMOD2
@@ -428,7 +428,6 @@ models_4layers <- BIOMOD_Modeling(
     prevalence = 0.5,
     var.import = 3,
     metric.eval = c('TSS', 'ROC')
-    # Remove a linha BIOMOD_ModelingOptions = myOptions
 )
 
 # Salvar modelos
