@@ -1,0 +1,485 @@
+# ============================
+# ANÁLISE COMPLETA: SOBREPOSIÇÃO IUCN + MAPA + ESTATÍSTICAS
+# ============================
+
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(scales)
+library(patchwork)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(ggspatial)
+
+# ============================
+# CONFIGURAR DIRETÓRIO DE SAÍDA
+# ============================
+
+output_dir <- "C:/Users/Administrador/Desktop/Gab/Mod/Resultados_Comparacao"
+if(!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
+cat("📁 Diretório de saída:", output_dir, "\n")
+
+# ============================
+# 1. CONFIGURAÇÃO INICIAL - AMÉRICA
+# ============================
+
+america_bbox <- st_bbox(c(xmin = -170, xmax = -30, ymin = -60, ymax = 80), crs = 4326)
+
+america_countries <- ne_countries(scale = "medium", returnclass = "sf") %>%
+    st_crop(america_bbox) %>%
+    st_set_crs(4326)
+
+# ============================
+# 2. CARREGAR MAPA IUCN E OUTRAS FONTES
+# ============================
+
+iucn_file <- "C:/Users/Administrador/Desktop/Gab/Mod/MAMMALS_TERRESTRIAL_ONLY/MAMMALS_TERRESTRIAL_ONLY.shp"
+
+cat("Carregando shapefile IUCN...\n")
+mammals <- st_read(iucn_file)
+
+# Carregar shapes adicionais
+cat("Carregando shapes adicionais...\n")
+
+# Wilson et al
+wilson_file <- "C:/Users/Administrador/Desktop/Gab/Mod/Vampyrum_MOL/vampyrum/Vampyrum-spectrum_WILSON/data/Vampyrum_spectrum.shp"
+wilson_vampyrum <- st_read(wilson_file) %>%
+    st_crop(america_bbox) %>%
+    st_set_crs(4326)
+
+# Burgin et al  
+burgin_file <- "C:/Users/Administrador/Desktop/Gab/Mod/Vampyrum_MOL/vampyrum/Vampyrum-spectrum_BURGIN/data/Vampyrum_spectrum.shp"
+burgin_vampyrum <- st_read(burgin_file) %>%
+    st_crop(america_bbox) %>%
+    st_set_crs(4326)
+
+# Mammal Diversity Database 2020
+mdd2020_file <- "C:/Users/Administrador/Desktop/Gab/Mod/Vampyrum_MOL/vampyrum/Vampyrum-spectrum_MDD2020/data/Vampyrum_spectrum.shp"
+mdd2020_vampyrum <- st_read(mdd2020_file) %>%
+    st_crop(america_bbox) %>%
+    st_set_crs(4326)
+
+cat("✅ Todos os shapes carregados\n")
+
+# ============================
+# 3. FILTRAR VAMPYRUM SPECTRUM DA IUCN
+# ============================
+
+iucn_vampyrum <- mammals %>%
+    filter(sci_name == "Vampyrum spectrum", presence == 1, origin == 1) %>%
+    st_crop(america_bbox) %>%
+    st_set_crs(4326)
+
+cat("✅ Vampyrum spectrum carregado da IUCN\n")
+
+# ============================
+# 4. CARREGAR DADOS COLETADOS
+# ============================
+
+occ_data <- tryCatch({
+    read.csv("C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All.csv")
+}, error = function(e) {
+    cat("⚠ Usando dados de exemplo...\n")
+    data.frame(
+        longitude = c(-70, -65, -75, -68, -72, -63, -77),
+        latitude = c(-5, 0, 5, -8, 2, -3, 8)
+    )
+})
+
+occ_sf <- occ_data %>%
+    st_as_sf(coords = c("longitude", "latitude"), crs = 4326) %>%
+    st_crop(america_bbox)
+
+# Criar polígono concavo dos dados coletados
+occ_union <- st_union(occ_sf)
+occ_concave_hull <- st_concave_hull(occ_union, ratio = 0.175)
+occ_concave_hull <- st_simplify(occ_concave_hull, dTolerance = 0.5)
+occ_concave_hull <- st_buffer(occ_concave_hull, dist = 0.9)
+
+# ============================
+# 4.5 RECORTAR POLÍGONO AZUL PELOS LIMITES CONTINENTAIS
+# ============================
+
+occ_concave_hull <- st_transform(occ_concave_hull, st_crs(america_countries))
+occ_concave_hull_clipped <- st_intersection(occ_concave_hull, st_union(america_countries))
+
+cat("✅ Polígono azul recortado pelos limites continentais\n")
+
+# ============================
+# 5. FUNÇÃO PARA CALCULAR SOBREPOSIÇÃO
+# ============================
+
+calcular_sobreposicao <- function(distribuicao, nome_fonte) {
+    cat("Calculando sobreposição com", nome_fonte, "...\n")
+    
+    # Calcular interseção
+    intersection_area <- tryCatch({
+        result <- st_intersection(distribuicao, occ_concave_hull_clipped)
+        if(nrow(result) > 0 && !all(st_is_empty(result))) result else NULL
+    }, error = function(e) {
+        NULL
+    })
+    
+    # Calcular área de NÃO sobreposição
+    area_diff <- tryCatch({
+        st_difference(occ_concave_hull_clipped, st_union(distribuicao))
+    }, error = function(e) {
+        NULL
+    })
+    
+    # Verificar quais pontos estão dentro
+    points_inside <- st_intersects(occ_sf, distribuicao)
+    dentro <- lengths(points_inside) > 0
+    
+    # Calcular áreas
+    area_fonte_km2 <- as.numeric(sum(st_area(distribuicao))) / 1e6
+    area_coletada_km2 <- as.numeric(st_area(occ_concave_hull_clipped)) / 1e6
+    
+    if(!is.null(intersection_area) && nrow(intersection_area) > 0) {
+        area_sobreposicao_km2 <- as.numeric(sum(st_area(intersection_area))) / 1e6
+    } else {
+        area_sobreposicao_km2 <- 0
+    }
+    
+    if(!is.null(area_diff) && length(area_diff) > 0 && !all(st_is_empty(area_diff))) {
+        area_expandida_km2 <- as.numeric(sum(st_area(area_diff))) / 1e6
+    } else {
+        area_expandida_km2 <- area_coletada_km2 - area_sobreposicao_km2
+    }
+    
+    area_total_final_km2 <- area_fonte_km2 + area_expandida_km2
+    area_expandida_km2 <- max(0, area_expandida_km2)
+    area_total_final_km2 <- max(area_fonte_km2, area_total_final_km2)
+    
+    expansao_percentual <- ifelse(area_fonte_km2 > 0, (area_expandida_km2 / area_fonte_km2) * 100, 0)
+    aumento_total_percentual <- ifelse(area_fonte_km2 > 0, ((area_total_final_km2 - area_fonte_km2) / area_fonte_km2) * 100, 0)
+    
+    # Estatísticas de registros
+    total_registros <- nrow(occ_sf)
+    registros_dentro <- sum(dentro)
+    registros_fora <- total_registros - registros_dentro
+    percentual_dentro <- (registros_dentro / total_registros) * 100
+    percentual_fora <- (registros_fora / total_registros) * 100
+    
+    return(list(
+        nome_fonte = nome_fonte,
+        intersection_area = intersection_area,
+        area_diff = area_diff,
+        dentro = dentro,
+        area_fonte_km2 = area_fonte_km2,
+        area_coletada_km2 = area_coletada_km2,
+        area_sobreposicao_km2 = area_sobreposicao_km2,
+        area_expandida_km2 = area_expandida_km2,
+        area_total_final_km2 = area_total_final_km2,
+        expansao_percentual = expansao_percentual,
+        aumento_total_percentual = aumento_total_percentual,
+        registros_dentro = registros_dentro,
+        registros_fora = registros_fora,
+        percentual_dentro = percentual_dentro,
+        percentual_fora = percentual_fora
+    ))
+}
+
+# ============================
+# 6. CALCULAR SOBREPOSIÇÃO COM TODAS AS FONTES
+# ============================
+
+cat("Calculando sobreposições com todas as fontes...\n")
+
+sobreposicao_iucn <- calcular_sobreposicao(iucn_vampyrum, "IUCN")
+sobreposicao_wilson <- calcular_sobreposicao(wilson_vampyrum, "Wilson et al")
+sobreposicao_burgin <- calcular_sobreposicao(burgin_vampyrum, "Burgin et al")
+sobreposicao_mdd2020 <- calcular_sobreposicao(mdd2020_vampyrum, "MDD2020")
+
+# Lista com todas as sobreposições
+todas_sobreposicoes <- list(
+    sobreposicao_iucn,
+    sobreposicao_wilson, 
+    sobreposicao_burgin,
+    sobreposicao_mdd2020
+)
+
+# ============================
+# 7. CRIAR MAPAS COMPARATIVOS
+# ============================
+
+criar_mapa_comparativo <- function(sobreposicao, titulo) {
+    
+    area_annotations <- data.frame(
+        x = -110,
+        y = c(25, 20, 15, 10, 5),
+        label = c(
+            paste("Área", sobreposicao$nome_fonte, ":", round(sobreposicao$area_fonte_km2, 0), "km²"),
+            paste("Área Coletada:", round(sobreposicao$area_coletada_km2, 0), "km²"),
+            paste("Sobreposição:", round(sobreposicao$area_sobreposicao_km2, 0), "km²"),
+            paste("Área Expandida:", round(sobreposicao$area_expandida_km2, 0), "km²"),
+            paste("Área TOTAL:", round(sobreposicao$area_total_final_km2, 0), "km²")
+        ),
+        color = c("red", "blue", "purple", "darkgreen", "black")
+    )
+    
+    # Determinar qual é a fonte atual para plotagem
+    if(sobreposicao$nome_fonte == "IUCN") {
+        fonte_shape <- iucn_vampyrum
+    } else if(sobreposicao$nome_fonte == "Wilson et al") {
+        fonte_shape <- wilson_vampyrum
+    } else if(sobreposicao$nome_fonte == "Burgin et al") {
+        fonte_shape <- burgin_vampyrum
+    } else {
+        fonte_shape <- mdd2020_vampyrum
+    }
+    
+    ggplot() +
+        geom_sf(data = america_countries, fill = "gray95", color = "gray70", size = 0.2) +
+        
+        # Polígono da fonte
+        geom_sf(data = fonte_shape, fill = "red", alpha = 0.3, color = "darkred", size = 1) +
+        
+        # Polígono de dados coletados (recortado)
+        geom_sf(data = occ_concave_hull_clipped, fill = "blue", alpha = 0.3, color = "darkblue", size = 1) +
+        
+        # Área de sobreposição
+        {if(!is.null(sobreposicao$intersection_area) && nrow(sobreposicao$intersection_area) > 0 && !all(st_is_empty(sobreposicao$intersection_area)))
+            geom_sf(data = sobreposicao$intersection_area, fill = "purple", alpha = 0.6, color = "purple", size = 1)} +
+        
+        # Área expandida (não sobreposição)
+        {if(!is.null(sobreposicao$area_diff) && length(sobreposicao$area_diff) > 0 && !all(st_is_empty(sobreposicao$area_diff)))
+            geom_sf(data = sobreposicao$area_diff, fill = "darkgreen", alpha = 0.4, color = "darkgreen", size = 1)} +
+        
+        # Pontos de ocorrência (cores diferentes para dentro/fora)
+        geom_sf(data = occ_sf[sobreposicao$dentro,], 
+                color = "darkred", size = 2, alpha = 0.8, shape = 16) +
+        geom_sf(data = occ_sf[!sobreposicao$dentro,], 
+                color = "darkblue", size = 2, alpha = 0.8, shape = 17) +
+        
+        # Anotações de área
+        geom_label(data = area_annotations, 
+                   aes(x = x, y = y, label = label, fill = color),
+                   color = "white", fontface = "bold", size = 3.2,
+                   alpha = 0.8, show.legend = FALSE) +
+        scale_fill_identity() +
+        
+        coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
+        annotation_north_arrow(location = "tr", which_north = "true") +
+        annotation_scale(location = "bl") +
+        
+        labs(
+            title = titulo,
+            subtitle = paste("Comparação entre distribuição", sobreposicao$nome_fonte, "e dados coletados em campo"),
+            caption = paste("Vermelho:", sobreposicao$nome_fonte, "| Azul: Área Coletada | Roxo: Sobreposição | Verde: Área Expandida\n",
+                            "Pontos Vermelhos: Registros dentro | Pontos Azuis: Registros fora")
+        ) +
+        theme_minimal() +
+        theme(
+            plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+            plot.subtitle = element_text(size = 10, hjust = 0.5),
+            plot.caption = element_text(size = 8, hjust = 0.5),
+            legend.position = "none"
+        )
+}
+
+# ============================
+# 8. MAPA COMPARATIVO COM TODAS AS FONTES
+# ============================
+
+criar_mapa_todas_fontes <- function() {
+    
+    ggplot() +
+        geom_sf(data = america_countries, fill = "gray95", color = "gray70", size = 0.2) +
+        
+        # Todas as fontes com transparência
+        geom_sf(data = iucn_vampyrum, fill = "red", alpha = 0.2, color = "darkred", size = 0.5) +
+        geom_sf(data = wilson_vampyrum, fill = "orange", alpha = 0.2, color = "darkorange", size = 0.5) +
+        geom_sf(data = burgin_vampyrum, fill = "green", alpha = 0.2, color = "darkgreen", size = 0.5) +
+        geom_sf(data = mdd2020_vampyrum, fill = "purple", alpha = 0.2, color = "darkviolet", size = 0.5) +
+        
+        # Polígono de dados coletados
+        geom_sf(data = occ_concave_hull_clipped, fill = "blue", alpha = 0.3, color = "darkblue", size = 1) +
+        
+        # Pontos de ocorrência
+        geom_sf(data = occ_sf, color = "black", size = 1.5, alpha = 0.8, shape = 16) +
+        
+        coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
+        annotation_north_arrow(location = "tr", which_north = "true") +
+        annotation_scale(location = "bl") +
+        
+        labs(
+            title = "COMPARAÇÃO COMPLETA: TODAS AS FONTES DE DISTRIBUIÇÃO",
+            subtitle = "Vampyrum spectrum - Sobreposição de todas as bases de dados",
+            caption = "Vermelho: IUCN | Laranja: Wilson et al | Verde: Burgin et al | Roxo: MDD2020 | Azul: Dados Coletados"
+        ) +
+        theme_minimal() +
+        theme(
+            plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+            plot.subtitle = element_text(size = 10, hjust = 0.5),
+            plot.caption = element_text(size = 8, hjust = 0.5)
+        )
+}
+
+# ============================
+# 9. MAPA COMPARATIVO IUCN + DADOS + MDD2020
+# ============================
+
+criar_mapa_iucn_mdd2020 <- function() {
+    
+    ggplot() +
+        geom_sf(data = america_countries, fill = "gray95", color = "gray70", size = 0.2) +
+        
+        # IUCN e MDD2020
+        geom_sf(data = iucn_vampyrum, fill = "red", alpha = 0.3, color = "darkred", size = 0.8) +
+        geom_sf(data = mdd2020_vampyrum, fill = "purple", alpha = 0.3, color = "darkviolet", size = 0.8) +
+        
+        # Polígono de dados coletados
+        geom_sf(data = occ_concave_hull_clipped, fill = "blue", alpha = 0.3, color = "darkblue", size = 1) +
+        
+        # Pontos de ocorrência
+        geom_sf(data = occ_sf, color = "black", size = 1.5, alpha = 0.8, shape = 16) +
+        
+        coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
+        annotation_north_arrow(location = "tr", which_north = "true") +
+        annotation_scale(location = "bl") +
+        
+        labs(
+            title = "COMPARAÇÃO: IUCN + MDD2020 + DADOS COLETADOS",
+            subtitle = "Foco nas principais fontes de referência",
+            caption = "Vermelho: IUCN | Roxo: MDD2020 | Azul: Dados Coletados"
+        ) +
+        theme_minimal() +
+        theme(
+            plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+            plot.subtitle = element_text(size = 10, hjust = 0.5),
+            plot.caption = element_text(size = 8, hjust = 0.5)
+        )
+}
+
+# ============================
+# 10. CRIAR GRÁFICOS COMPARATIVOS
+# ============================
+
+# Dados para gráficos comparativos
+dados_comparativos <- do.call(rbind, lapply(todas_sobreposicoes, function(x) {
+    data.frame(
+        Fonte = x$nome_fonte,
+        Area_Fonte = x$area_fonte_km2,
+        Area_Coletada = x$area_coletada_km2,
+        Sobreposicao = x$area_sobreposicao_km2,
+        Area_Expandida = x$area_expandida_km2,
+        Area_Total = x$area_total_final_km2,
+        Expansao_Percentual = x$expansao_percentual,
+        Aumento_Total = x$aumento_total_percentual,
+        Registros_Dentro = x$registros_dentro,
+        Registros_Fora = x$registros_fora,
+        Percentual_Dentro = x$percentual_dentro,
+        Percentual_Fora = x$percentual_fora
+    )
+}))
+
+# Gráfico comparativo de áreas
+grafico_comparativo_areas <- ggplot(dados_comparativos, aes(x = Fonte)) +
+    geom_bar(aes(y = Area_Fonte, fill = "Área Fonte"), stat = "identity", alpha = 0.7, position = "dodge") +
+    geom_bar(aes(y = Area_Coletada, fill = "Área Coletada"), stat = "identity", alpha = 0.7, position = "dodge") +
+    geom_bar(aes(y = Sobreposicao, fill = "Sobreposição"), stat = "identity", alpha = 0.7, position = "dodge") +
+    geom_bar(aes(y = Area_Expandida, fill = "Área Expandida"), stat = "identity", alpha = 0.7, position = "dodge") +
+    scale_fill_manual(values = c("Área Fonte" = "red", "Área Coletada" = "blue", 
+                                 "Sobreposição" = "purple", "Área Expandida" = "green")) +
+    labs(title = "COMPARAÇÃO DE ÁREAS ENTRE FONTES",
+         y = "Área (km²)", fill = "") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Gráfico comparativo de registros
+dados_registros <- data.frame(
+    Fonte = rep(dados_comparativos$Fonte, 2),
+    Categoria = rep(c("Dentro", "Fora"), each = nrow(dados_comparativos)),
+    Quantidade = c(dados_comparativos$Registros_Dentro, dados_comparativos$Registros_Fora)
+)
+
+grafico_comparativo_registros <- ggplot(dados_registros, aes(x = Fonte, y = Quantidade, fill = Categoria)) +
+    geom_bar(stat = "identity", position = "stack", alpha = 0.8) +
+    scale_fill_manual(values = c("Dentro" = "#1f77b4", "Fora" = "#ff7f0e")) +
+    labs(title = "REGISTROS DENTRO/FORA POR FONTE",
+         y = "Número de Registros", fill = "") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# ============================
+# 11. GERAR TODOS OS MAPAS
+# ============================
+
+cat("Gerando mapas comparativos...\n")
+
+# Mapas individuais
+mapa_iucn <- criar_mapa_comparativo(sobreposicao_iucn, "COMPARAÇÃO COM IUCN")
+mapa_wilson <- criar_mapa_comparativo(sobreposicao_wilson, "COMPARAÇÃO COM WILSON ET AL")
+mapa_burgin <- criar_mapa_comparativo(sobreposicao_burgin, "COMPARAÇÃO COM BURGIN ET AL")  
+mapa_mdd2020 <- criar_mapa_comparativo(sobreposicao_mdd2020, "COMPARAÇÃO COM MDD2020")
+
+# Mapas especiais
+mapa_todas_fontes <- criar_mapa_todas_fontes()
+mapa_iucn_mdd2020 <- criar_mapa_iucn_mdd2020()
+
+# ============================
+# 12. SALVAR TODOS OS RESULTADOS
+# ============================
+
+cat("Salvando resultados...\n")
+
+# Salvar mapas individuais
+ggsave(file.path(output_dir, "Mapa_Comparativo_IUCN_teste1.png"), mapa_iucn, width = 14, height = 10, dpi = 300)
+ggsave(file.path(output_dir, "Mapa_Comparativo_Wilson_teste1.png"), mapa_wilson, width = 14, height = 10, dpi = 300)
+ggsave(file.path(output_dir, "Mapa_Comparativo_Burgin_teste1.png"), mapa_burgin, width = 14, height = 10, dpi = 300)
+ggsave(file.path(output_dir, "Mapa_Comparativo_MDD2020_teste1.png"), mapa_mdd2020, width = 14, height = 10, dpi = 300)
+
+# Salvar mapas especiais
+ggsave(file.path(output_dir, "Mapa_Todas_Fontes_teste1.png"), mapa_todas_fontes, width = 14, height = 10, dpi = 300)
+ggsave(file.path(output_dir, "Mapa_IUCN_MDD2020_teste1.png"), mapa_iucn_mdd2020, width = 14, height = 10, dpi = 300)
+
+# Salvar gráficos comparativos
+ggsave(file.path(output_dir, "Grafico_Comparativo_Areas_teste1.png"), grafico_comparativo_areas, width = 12, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "Grafico_Comparativo_Registros_teste1.png"), grafico_comparativo_registros, width = 12, height = 8, dpi = 300)
+
+# ============================
+# 13. RELATÓRIO FINAL COMPARATIVO
+# ============================
+
+cat("\n", rep("=", 100), "\n")
+cat("📈 RELATÓRIO COMPARATIVO FINAL: DISTRIBUIÇÃO DE Vampyrum spectrum\n")
+cat(rep("=", 100), "\n\n")
+
+cat("🎯 COMPARAÇÃO DE REGISTROS:\n")
+for(sobreposicao in todas_sobreposicoes) {
+    cat("   •", sobreposicao$nome_fonte, ":\n")
+    cat("     - Registros dentro:", sobreposicao$registros_dentro, "(", round(sobreposicao$percentual_dentro, 1), "%)\n")
+    cat("     - Registros fora:", sobreposicao$registros_fora, "(", round(sobreposicao$percentual_fora, 1), "%)\n")
+}
+
+cat("\n🗺️  COMPARAÇÃO DE ÁREAS:\n")
+for(sobreposicao in todas_sobreposicoes) {
+    cat("   •", sobreposicao$nome_fonte, ":\n")
+    cat("     - Área fonte:", round(sobreposicao$area_fonte_km2, 0), "km²\n")
+    cat("     - Área expandida:", round(sobreposicao$area_expandida_km2, 0), "km²\n")
+    cat("     - Expansão:", round(sobreposicao$expansao_percentual, 1), "%\n")
+    cat("     - Área total final:", round(sobreposicao$area_total_final_km2, 0), "km²\n")
+}
+
+cat("\n📁 ARQUIVOS GERADOS:\n")
+cat("   • Mapa_Comparativo_IUCN.png\n")
+cat("   • Mapa_Comparativo_Wilson.png\n") 
+cat("   • Mapa_Comparativo_Burgin.png\n")
+cat("   • Mapa_Comparativo_MDD2020.png\n")
+cat("   • Mapa_Todas_Fontes.png (comparação com 5 fontes)\n")
+cat("   • Mapa_IUCN_MDD2020.png (comparação IUCN + MDD2020)\n")
+cat("   • Grafico_Comparativo_Areas.png\n")
+cat("   • Grafico_Comparativo_Registros.png\n")
+
+cat("\n💡 RESUMO DAS CONTRIBUIÇÕES:\n")
+# Encontrar a fonte com maior expansão
+maior_expansao <- todas_sobreposicoes[[which.max(sapply(todas_sobreposicoes, function(x) x$expansao_percentual))]]
+cat("   • Maior expansão ocorre com", maior_expansao$nome_fonte, ":", round(maior_expansao$expansao_percentual, 1), "%\n")
+
+# Encontrar a fonte com mais registros fora
+mais_registros_fora <- todas_sobreposicoes[[which.max(sapply(todas_sobreposicoes, function(x) x$registros_fora))]]
+cat("   • Mais registros fora encontrados em", mais_registros_fora$nome_fonte, ":", mais_registros_fora$registros_fora, "registros\n")
+
+cat(rep("=", 100), "\n")
