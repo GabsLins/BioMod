@@ -77,8 +77,8 @@ biomod_data <- BIOMOD_FormatingData(
   resp.var = resp.var,
   expl.var = env_data,
   resp.xy = coords,
-  PA.nb.rep = 10, ### Tentar usar 30 rep se tiver mais de 32GB RAM, usar 7 se tiver menos de 16GB RAM
-  PA.nb.absences = 600, ### Tentar usar 10.000 PA implica em precisar de mais 15GB RAM 
+  PA.nb.rep = 7, ### Tentar usar 30 rep se tiver mais de 32GB RAM, usar 7 se tiver menos de 16GB RAM ou 10rep se tiver 32GB
+  PA.nb.absences = 1500, ### Tentar usar 10000 PA implica em precisar de mais 15GB RAM; antes usei 600 PA
   PA.strategy = "jackknife",  # ← Sugerida
   PA.dist.min = 3000,        # Distância mínima das presências (em metros)
   PA.dist.max = 150000,       # Distância máxima das presências
