@@ -651,15 +651,18 @@ if (!is.null(model_evaluations)) {
 }
 
 # CORREÇÃO: Adicionar avaliação do Ensemble
+# Identificar o nome correto do conjunto de dados (ex.: "validation" ou "calibration")
+dataset_name <- dimnames(ensemble_eval)$data.set[1]
+
 ensemble_tss <- tryCatch({
-  as.numeric(ensemble_eval["TSS", "Testing.data", "EMmean"])
+  as.numeric(ensemble_eval["TSS", dataset_name, , "EMmean"])
 }, error = function(e) {
   cat("Erro ao extrair TSS do ensemble:", e$message, "\n")
   NA
 })
 
 ensemble_roc <- tryCatch({
-  as.numeric(ensemble_eval["ROC", "Testing.data", "EMmean"])
+  as.numeric(ensemble_eval["ROC", dataset_name, , "EMmean"])
 }, error = function(e) {
   cat("Erro ao extrair ROC do ensemble:", e$message, "\n")
   NA
@@ -997,15 +1000,18 @@ if (!is.null(model_evaluations)) {
 }
 
 # CORREÇÃO: Adicionar avaliação do Ensemble
+# Identificar o nome correto do conjunto de dados (ex.: "validation" ou "calibration")
+dataset_name <- dimnames(ensemble_eval)$data.set[1]
+
 ensemble_tss <- tryCatch({
-  as.numeric(ensemble_eval["TSS", "Testing.data", "EMmean"])
+  as.numeric(ensemble_eval["TSS", dataset_name, , "EMmean"])
 }, error = function(e) {
   cat("Erro ao extrair TSS do ensemble:", e$message, "\n")
   NA
 })
 
 ensemble_roc <- tryCatch({
-  as.numeric(ensemble_eval["ROC", "Testing.data", "EMmean"])
+  as.numeric(ensemble_eval["ROC", dataset_name, , "EMmean"])
 }, error = function(e) {
   cat("Erro ao extrair ROC do ensemble:", e$message, "\n")
   NA
@@ -1425,12 +1431,15 @@ print(head(combined_data))
 # ------------------------------------------------------
 ensemble_evals <- get_evaluations(ensemble_4layers)
 
+# Identificar automaticamente o dataset correto do ensemble
+ds <- dimnames(ensemble_evals)$data.set[1]
+
 ensemble_tss <- tryCatch({
-  as.numeric(ensemble_evals["TSS", "Testing.data", , , "EMmean"])
+  as.numeric(ensemble_evals["TSS", ds, , , "EMmean"])
 }, error = function(e) NA)
 
 ensemble_roc <- tryCatch({
-  as.numeric(ensemble_evals["ROC", "Testing.data", , , "EMmean"])
+  as.numeric(ensemble_evals["ROC", ds, , , "EMmean"])
 }, error = function(e) NA)
 
 ensemble_data <- data.frame(
