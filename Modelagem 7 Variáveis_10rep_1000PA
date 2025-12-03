@@ -138,7 +138,7 @@ imp_expl <- data.frame(
 mean_imp_var <- arrange(aggregate(var_imp ~ expl_var, data = imp_expl, FUN = mean), desc(var_imp))
 
 # Salvar importância com nomes corretos
-write.csv(mean_imp_var, "C:/Users/Administrador/Desktop/GAB/Mod/var_importance_todas_variaveis_teste42.csv", row.names = FALSE)
+write.csv(mean_imp_var, "C:/Users/Administrador/Desktop/GAB/Mod/var_importance_todas_variaveis_teste44.csv", row.names = FALSE)
 
 cat("Importância das variáveis (com nomes corretos):\n")
 print(mean_imp_var)
@@ -156,7 +156,7 @@ projections <- BIOMOD_Projection(
   models.chosen = "all"
 )
 
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste42_semCover_rep10_1500PA_FALSE_RFspecific"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste44_semCover_rep10_1500PA_FALSE_RFspecific"
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 proj_stack <- get_predictions(projections)
@@ -209,7 +209,7 @@ EMimp_expl <- data.frame(
 EMmean_imp_var <- arrange(aggregate(var_imp ~ expl_var, data = EMimp_expl, FUN = mean), desc(var_imp))
 
 # Salvar importância do ensemble com nomes corretos
-write.csv(EMmean_imp_var, "C:/Users/Administrador/Desktop/GAB/Mod/ensemble_var_importance_todas_variaveis_teste42.csv", row.names = FALSE)
+write.csv(EMmean_imp_var, "C:/Users/Administrador/Desktop/GAB/Mod/ensemble_var_importance_todas_variaveis_teste44.csv", row.names = FALSE)
 
 cat("Importância das variáveis no ensemble (com nomes corretos):\n")
 print(EMmean_imp_var)
@@ -231,7 +231,7 @@ EnsembleProj <- BIOMOD_EnsembleForecasting(
 
 # Salvar o ensemble
 ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble", "proj_ensemble_Vampyrum.spectrum_ensemble.tif"))
-writeRaster(ensemble_raster, file.path(output_dir, "ensemble_projection_todas_variaveis_teste42.tif"), overwrite = TRUE)
+writeRaster(ensemble_raster, file.path(output_dir, "ensemble_projection_todas_variaveis_teste44.tif"), overwrite = TRUE)
 
 # Plot do ensemble
 plot(EnsembleProj)
@@ -289,7 +289,7 @@ cat("  Valores negativos removidos:", sum(relevo_values < 0), "\n")
 cat("  Total de pixels válidos:", length(relevo_values), "\n")
 
 # ============================
-# MODELAGEM COMPLETA - ENSEMBLE COM 4 VARIÁVEIS (teste43)
+# MODELAGEM COMPLETA - ENSEMBLE COM 4 VARIÁVEIS (teste45)
 # ============================
 
 # ============================
@@ -315,7 +315,7 @@ library(rnaturalearthdata)
 # ============================
 
 ## Definir diretório de saída
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste43_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste45_ensemble"
 
 # Criar diretório se não existir
 if (!dir.exists(output_dir)) {
@@ -341,7 +341,7 @@ occ_data <- data.frame(
 )
 
 # Salvar dados de ocorrência
-write.csv(occ_data, file.path(output_dir, "dados_ocorrencia_teste43.csv"), row.names = FALSE)
+write.csv(occ_data, file.path(output_dir, "dados_ocorrencia_teste45.csv"), row.names = FALSE)
 
 cat("Dados de ocorrência carregados:", nrow(occ_data), "registros\n")
 
@@ -377,10 +377,10 @@ cat("Variáveis ambientais carregadas:\n")
 print(names(env_data4layers))
 
 # Salvar variáveis processadas
-writeRaster(vaporpressure, file.path(output_dir, "vaporpressure_processado_teste43.tif"), overwrite = TRUE)
-writeRaster(wind, file.path(output_dir, "wind_processado_teste43.tif"), overwrite = TRUE)
-writeRaster(relevo, file.path(output_dir, "relevo_processado_teste43.tif"), overwrite = TRUE)
-writeRaster(BIO7, file.path(output_dir, "BIO7_processado_teste43.tif"), overwrite = TRUE)
+writeRaster(vaporpressure, file.path(output_dir, "vaporpressure_processado_teste45.tif"), overwrite = TRUE)
+writeRaster(wind, file.path(output_dir, "wind_processado_teste45.tif"), overwrite = TRUE)
+writeRaster(relevo, file.path(output_dir, "relevo_processado_teste45.tif"), overwrite = TRUE)
+writeRaster(BIO7, file.path(output_dir, "BIO7_processado_teste45.tif"), overwrite = TRUE)
 
 # ============================
 # MODELAGEM BIOMOD2
@@ -403,7 +403,7 @@ biomod_data4layers <- BIOMOD_FormatingData(
 )
 
 # Salvar dados formatados
-saveRDS(biomod_data4layers, file.path(output_dir, "biomod_data4layers_teste43.rds"))
+saveRDS(biomod_data4layers, file.path(output_dir, "biomod_data4layers_teste45.rds"))
 
 ## BioMod2 Modeling
 cat("Iniciando modelagem com 5 algoritmos...\n")
@@ -421,7 +421,7 @@ myOptions <- BIOMOD_ModelingOptions(
 
 models_4layers <- BIOMOD_Modeling(
     biomod_data4layers,
-    modeling.id = "teste43", 
+    modeling.id = "teste45", 
     models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'), 
     CV.strategy = 'block',
     prevalence = 0.5,
@@ -430,7 +430,7 @@ models_4layers <- BIOMOD_Modeling(
 )
 
 # Salvar modelos
-saveRDS(models_4layers, file.path(output_dir, "models_4layers_teste43.rds"))
+saveRDS(models_4layers, file.path(output_dir, "models_4layers_teste45.rds"))
 
 cat("Modelagem concluída com sucesso!\n")
 
@@ -442,10 +442,10 @@ cat("Modelagem concluída com sucesso!\n")
 cat("Gerando gráficos de avaliação...\n")
 
 gg1_4layers <- bm_PlotEvalMean(models_4layers, metric.eval = c("TSS", "ROC"), dataset = "calibration", do.plot = TRUE)
-## ESSA LINHA NAO ESTA FUNCIONANDO - ggsave(file.path(output_dir, "eval_mean_calibration_4layers_teste43.png"), plot = gg1_4layers, width = 611, height = 354, dpi = 300)
+## ESSA LINHA NAO ESTA FUNCIONANDO - ggsave(file.path(output_dir, "eval_mean_calibration_4layers_teste45.png"), plot = gg1_4layers, width = 611, height = 354, dpi = 300)
 
 gg2_4layers <- bm_PlotEvalMean(models_4layers, metric.eval = c("TSS", "ROC"), dataset = "validation", do.plot = TRUE)
-## ESSA LINHA NAO ESTA FUNCIONANDO - ggsave(file.path(output_dir, "eval_mean_validation_4layers_teste43.png"), plot = gg2_4layers, width = 611, height = 354, dpi = 300)
+## ESSA LINHA NAO ESTA FUNCIONANDO - ggsave(file.path(output_dir, "eval_mean_validation_4layers_teste45.png"), plot = gg2_4layers, width = 611, height = 354, dpi = 300)
 
 ## Variables importance dos modelos individuais
 cat("Calculando importância das variáveis...\n")
@@ -461,7 +461,7 @@ mean_imp_var_4layers <- aggregate(var_imp ~ expl_var, data = imp_expl4, FUN = me
 mean_imp_var_4layers <- arrange(mean_imp_var_4layers, desc(var_imp))
 
 # Salvar importância das variáveis
-write.csv(mean_imp_var_4layers, file.path(output_dir, "var_importance_4layers_teste43.csv"), row.names = FALSE)
+write.csv(mean_imp_var_4layers, file.path(output_dir, "var_importance_4layers_teste45.csv"), row.names = FALSE)
 
 cat("Importância das variáveis (modelos individuais):\n")
 print(mean_imp_var_4layers)
@@ -475,13 +475,13 @@ cat("Gerando projeções dos modelos...\n")
 
 projections_4layers <- BIOMOD_Projection(
   bm.mod = models_4layers,
-  proj.name = "current_teste43",
+  proj.name = "current_teste45",
   new.env = env_data4layers,
   models.chosen = "all"
 ) 
 
 # Salvar projeções
-saveRDS(projections_4layers, file.path(output_dir, "projections_4layers_teste43.rds"))
+saveRDS(projections_4layers, file.path(output_dir, "projections_4layers_teste45.rds"))
 
 # Salvar mapas individuais
 proj_stack <- get_predictions(projections_4layers)
@@ -491,8 +491,8 @@ for (i in 1:terra::nlyr(proj_stack)) {
   camada <- proj_stack[[i]]
   nome <- proj_names[i]
   
-  out_tif <- file.path(output_dir, paste0("proj_", nome, "_teste43.tif"))
-  out_png <- file.path(output_dir, paste0("proj_", nome, "_teste43.png"))
+  out_tif <- file.path(output_dir, paste0("proj_", nome, "_teste45.tif"))
+  out_png <- file.path(output_dir, paste0("proj_", nome, "_teste45.png"))
   
   terra::writeRaster(camada, out_tif, overwrite = TRUE)
   
@@ -524,11 +524,11 @@ ensemble_4layers <- BIOMOD_EnsembleModeling(
 )
 
 # Salvar ensemble
-saveRDS(ensemble_4layers, file.path(output_dir, "ensemble_4layers_teste43.rds"))
+saveRDS(ensemble_4layers, file.path(output_dir, "ensemble_4layers_teste45.rds"))
 
 # Avaliações do ensemble
 ensemble_eval <- get_evaluations(ensemble_4layers)
-write.csv(ensemble_eval, file.path(output_dir, "ensemble_evaluations_teste43.csv"), row.names = FALSE)
+write.csv(ensemble_eval, file.path(output_dir, "ensemble_evaluations_teste45.csv"), row.names = FALSE)
 
 cat("Avaliação do ensemble:\n")
 print(ensemble_eval)
@@ -555,7 +555,7 @@ EMmean_imp_var4 <- arrange(EMmean_imp_var4, desc(var_imp))
 EMmean_imp_var4$expl_var <- names(env_data4layers)
 
 # Salvar importância do ensemble
-write.csv(EMmean_imp_var4, file.path(output_dir, "ensemble_var_importance_4layers_teste43.csv"), row.names = FALSE)
+write.csv(EMmean_imp_var4, file.path(output_dir, "ensemble_var_importance_4layers_teste45.csv"), row.names = FALSE)
 
 cat("Importância das variáveis no ensemble:\n")
 print(EMmean_imp_var4)
@@ -569,7 +569,7 @@ cat("Gerando projeção do ensemble...\n")
 
 myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble_4layers,
-  proj.name = "ensemble_teste43",
+  proj.name = "ensemble_teste45",
   models.chosen = "all",
   new.env = env_data4layers,
   binary.meth = c('TSS','ROC'),
