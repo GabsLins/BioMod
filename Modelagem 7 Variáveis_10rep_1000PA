@@ -575,3 +575,12 @@ myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
   binary.meth = c('TSS','ROC'),
   compress = FALSE
 )
+
+# Salvar projeção do ensemble
+saveRDS(myBiomodEnsembleProj, file.path(output_dir, "ensemble_projection_4layers_teste43.rds"))
+
+# Salvar raster do ensemble
+ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble_teste43", "proj_ensemble_teste43_Vampyrum.spectrum_ensemble.tif"))
+writeRaster(ensemble_raster, file.path(output_dir, "ensemble_projection_4layers_teste43.tif"), overwrite = TRUE)
+
+cat("Projeção do ensemble salva com sucesso!\n")
