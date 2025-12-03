@@ -1,0 +1,336 @@
+# ======================================================
+# SCRIPT COMPLETO: Modelagem (4 variáveis) + Ensemble + Plots (TSS/ROC) + Painel
+# Comentado e com correções para extração robusta de métricas
+# ======================================================
+
+# --- 0) Pacotes ---
+library(biomod2)
+library(sp)
+library(raster)
+library(terra)
+library(dplyr)
+library(ggplot2)
+library(tidyterra)
+library(sf)
+library(patchwork)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(viridis)
+
+# --- 1) Configurações e diretórios ---
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste43_ensemble"
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
+set.seed(42) # reprodutibilidade
+
+# --- 2) Dados de ocorrência ---
+occurence <- read.csv("C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All3.csv")
+coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
+resp.var <- rep(1, nrow(coords))      # respostas (presença)
+sp <- SpatialPoints(coords, proj4string = CRS("+proj=longlat +datum=WGS84"))
+
+occ_data <- data.frame(species = rep("Vampyrum_spectrum", nrow(coords)), lon = coords$x, lat = coords$y)
+write.csv(occ_data, file.path(output_dir, "dados_ocorrencia_teste43.csv"), row.names = FALSE)
+
+# --- 3) Camadas ambientais (4 variáveis) ---
+vaporpressure <- raster("C:/Users/Administrador/Desktop/GAB/Mod/meanvaporpressure.tif")
+wind <- raster("C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif")
+relevo <- raster("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif")
+BIO7 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
+
+ext_america <- extent(-170, -26, -56, 72)
+
+# Resample / crop to a reference (use BIO7 as reference to ensure same resolution/proj)
+vaporpressure <- resample(crop(vaporpressure, ext_america), BIO7, method = 'bilinear')
+wind         <- resample(crop(wind, ext_america), BIO7, method = 'bilinear')
+relevo       <- resample(crop(relevo, ext_america), BIO7, method = 'bilinear')
+BIO7         <- resample(crop(BIO7, ext_america), BIO7, method = 'bilinear')
+
+# Excluir valores de relevo marinho (valor negativo -> mar)
+relevo[relevo < 0] <- NA
+
+env_data4layers <- stack(vaporpressure, wind, relevo, BIO7)
+names(env_data4layers) <- c("Pressao_Vapor", "Vento", "Relevo", "Variacao_de_Temperatura")
+cat("Camadas carregadas:\n"); print(names(env_data4layers))
+
+# Opcional: salvar camadas processadas
+writeRaster(vaporpressure, file.path(output_dir, "vaporpressure_processado_teste43.tif"), overwrite = TRUE)
+writeRaster(wind, file.path(output_dir, "wind_processado_teste43.tif"), overwrite = TRUE)
+writeRaster(relevo, file.path(output_dir, "relevo_processado_teste43.tif"), overwrite = TRUE)
+writeRaster(BIO7, file.path(output_dir, "BIO7_processado_teste43.tif"), overwrite = TRUE)
+
+# --- 4) Formatação para BIOMOD2 ---
+biomod_data4layers <- BIOMOD_FormatingData(
+  resp.var = resp.var,
+  expl.var = env_data4layers,
+  resp.xy = coords,
+  PA.nb.rep = 10,          # repetições de PAs
+  PA.nb.absences = 1500,   # número de pseudo-ausências (aumentar pode ajudar)
+  PA.strategy = "jackknife", # estratégia para reduzir overfitting de PAs
+  PA.dist.min = 20000,
+  PA.dist.max = 150000,
+  filter.raster = TRUE,
+  resp.name = "Vampyrum.spectrum"
+)
+saveRDS(biomod_data4layers, file.path(output_dir, "biomod_data4layers_teste43.rds"))
+
+# --- 5) Opções de modelagem (tentar reduzir complexidade para evitar overfitting) ---
+myOptions <- BIOMOD_ModelingOptions(
+  RF = list(n.trees = 500, mtry = 2, nodesize = 10, maxnodes = 30), # nodesize maior -> árvores menos profundas
+  GBM = list(n.trees = 200, interaction.depth = 3, shrinkage = 0.01, bag.fraction = 0.7),
+  # MAXENT: BIOMOD usa MAXENT.Phillips - ajuste via pacote original se necessário (regularização)
+  # MAXENT.Phillips = list(beta = 1) # (comente se levar a erro; esta linha depende da versão)
+)
+
+# Observações (comentário): 
+# - Para MAXENT, se notar overfitting use ENMeval ou ajuste de 'regularization multiplier' nas funções específicas.
+# - Para GAM, reduzir degrees of freedom / penalização também ajuda (pode ser passado via alternativs nos formulas).
+
+# --- 6) Modelagem ---
+models_4layers <- BIOMOD_Modeling(
+  biomod_data4layers,
+  modeling.id = "teste43",
+  models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'),
+  BIOMOD_ModelingOptions = myOptions,
+  CV.strategy = 'block',   # validação espacial (reduz overfitting)
+  CV.nb.rep = 3,
+  prevalence = 0.5,
+  var.import = 3,
+  metric.eval = c('TSS', 'ROC')
+)
+saveRDS(models_4layers, file.path(output_dir, "models_4layers_teste43.rds"))
+cat("Modelagem concluída.\n")
+
+# --- 7) Projeção dos modelos (individuais) ---
+projections_4layers <- BIOMOD_Projection(
+  bm.mod = models_4layers,
+  proj.name = "current_teste43",
+  new.env = env_data4layers,
+  models.chosen = "all"
+)
+saveRDS(projections_4layers, file.path(output_dir, "projections_4layers_teste43.rds"))
+
+proj_stack <- get_predictions(projections_4layers)
+proj_names <- names(proj_stack)
+for (i in seq_len(terra::nlyr(proj_stack))) {
+  camada <- proj_stack[[i]]
+  nome <- proj_names[i]
+  terra::writeRaster(camada, file.path(output_dir, paste0("proj_", nome, "_teste43.tif")), overwrite = TRUE)
+}
+
+# --- 8) Ensemble modeling ---
+ensemble_4layers <- BIOMOD_EnsembleModeling(
+  bm.mod = models_4layers,
+  models.chosen = "all",
+  em.by = "all",
+  em.algo = c('EMmean', 'EMci'),
+  metric.select = c('TSS','ROC'),
+  metric.select.thresh = c(0.5, 0.7),
+  var.import = 3,
+  seed.val = 42
+)
+saveRDS(ensemble_4layers, file.path(output_dir, "ensemble_4layers_teste43.rds"))
+
+# Extrair avaliações do ensemble (salvar)
+ensemble_eval <- get_evaluations(ensemble_4layers)
+write.csv(as.data.frame(ensemble_eval), file.path(output_dir, "ensemble_evaluations_teste43.csv"), row.names = FALSE)
+
+# --- 9) Importância no ensemble ---
+EMvar_imp4 <- get_variables_importance(ensemble_4layers)
+EMvar_imp_df4 <- as.data.frame(EMvar_imp4, stringsAsFactors = FALSE)
+EMimp_expl4 <- data.frame(expl_var = EMvar_imp_df4$expl.var, var_imp = as.numeric(EMvar_imp_df4$var.imp))
+EMmean_imp_var4 <- aggregate(var_imp ~ expl_var, data = EMimp_expl4, FUN = mean)
+EMmean_imp_var4 <- arrange(EMmean_imp_var4, desc(var_imp))
+EMmean_imp_var4$expl_var <- names(env_data4layers) # garantir nomes
+write.csv(EMmean_imp_var4, file.path(output_dir, "ensemble_var_importance_4layers_teste43.csv"), row.names = FALSE)
+importance_df <- data.frame(var = EMmean_imp_var4$expl_var, importance = EMmean_imp_var4$var_imp)
+
+# --- 10) Projeção do ensemble final ---
+myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
+  bm.em = ensemble_4layers,
+  proj.name = "ensemble_teste43",
+  models.chosen = "all",
+  new.env = env_data4layers,
+  binary.meth = c('TSS','ROC'),
+  compress = FALSE
+)
+saveRDS(myBiomodEnsembleProj, file.path(output_dir, "ensemble_projection_4layers_teste43.rds"))
+
+# Observação: a função BIOMOD_EnsembleForecasting pode produzir um SpatRaster com múltiplas bandas.
+# Para plot com tidyterra (geom_spatraster) escolha a camada desejada (ex.: primeira).
+ensemble_raster_all <- rast(file.path(output_dir, "ensemble_projection_4layers_teste43.tif"))
+# se for multi-layer, use a primeira camada para o mapa de adequabilidade
+ensemble_raster_single <- ensemble_raster_all[[1]]
+
+# --- 11) Extrair avaliações REAIS dos modelos individuais (tss/roc) ---
+# get_evaluations(models_4layers) pode retornar uma estrutura tipo data.frame
+model_evaluations <- as.data.frame(get_evaluations(models_4layers))
+
+# Verificação rápida
+cat("Dimensões de model_evaluations:", dim(model_evaluations), "\n")
+# Colunas esperadas: full.name, PA, run, algo, metric.eval, cutoff, sensitivity, specificity, calibration, validation, evaluation
+
+# Filtrar TSS e ROC reais (usamos coluna 'validation' que contém o valor de validação)
+if (!("metric.eval" %in% names(model_evaluations) & "validation" %in% names(model_evaluations))) {
+  stop("Estrutura inesperada em model_evaluations; verifique resultado de get_evaluations(models_4layers).")
+}
+
+tss_data <- model_evaluations %>%
+  filter(metric.eval == "TSS") %>%
+  transmute(Modelo = algo, Valor = validation)
+
+roc_data <- model_evaluations %>%
+  filter(metric.eval == "ROC") %>%
+  transmute(Modelo = algo, Valor = validation)
+
+cat("TSS extraídos:", nrow(tss_data), "linhas\n")
+cat("ROC extraídos:", nrow(roc_data), "linhas\n")
+
+# --- 12) Extrair avaliações REAIS do ENSEMBLE (EMmean) de forma robusta ---
+ensemble_eval_df <- as.data.frame(ensemble_eval)
+
+# Tentar extrair linhas onde 'algo' == "EMmean" ou 'full.name' contenha "EMmean"
+ensemble_tss_vals <- NA
+ensemble_roc_vals <- NA
+
+if ("algo" %in% names(ensemble_eval_df)) {
+  ensemble_tss_vals <- ensemble_eval_df %>% filter(metric.eval == "TSS", algo == "EMmean") %>% pull(validation)
+  ensemble_roc_vals <- ensemble_eval_df %>% filter(metric.eval == "ROC", algo == "EMmean") %>% pull(validation)
+}
+# fallback: buscar 'EMmean' em full.name
+if ((length(ensemble_tss_vals) == 0 || all(is.na(ensemble_tss_vals))) && "full.name" %in% names(ensemble_eval_df)) {
+  ensemble_tss_vals <- ensemble_eval_df %>% filter(metric.eval == "TSS", grepl("EMmean", full.name, ignore.case = TRUE)) %>% pull(validation)
+}
+if ((length(ensemble_roc_vals) == 0 || all(is.na(ensemble_roc_vals))) && "full.name" %in% names(ensemble_eval_df)) {
+  ensemble_roc_vals <- ensemble_eval_df %>% filter(metric.eval == "ROC", grepl("EMmean", full.name, ignore.case = TRUE)) %>% pull(validation)
+}
+
+# Se encontrou valores, calcular média (ou usar todos)
+if (length(ensemble_tss_vals) > 0 && !all(is.na(ensemble_tss_vals))) {
+  ensemble_tss_val <- mean(ensemble_tss_vals, na.rm = TRUE)
+} else {
+  ensemble_tss_val <- NA
+}
+if (length(ensemble_roc_vals) > 0 && !all(is.na(ensemble_roc_vals))) {
+  ensemble_roc_val <- mean(ensemble_roc_vals, na.rm = TRUE)
+} else {
+  ensemble_roc_val <- NA
+}
+
+cat("Ensemble TSS (média):", ensemble_tss_val, "\n")
+cat("Ensemble ROC (média):", ensemble_roc_val, "\n")
+
+# Se valores do ensemble existem, adicioná-los (replicar para visualização)
+if (!is.na(ensemble_tss_val)) {
+  tss_data <- bind_rows(tss_data, tibble::tibble(Modelo = "Ensemble", Valor = rep(ensemble_tss_val, 5)))
+}
+if (!is.na(ensemble_roc_val)) {
+  roc_data <- bind_rows(roc_data, tibble::tibble(Modelo = "Ensemble", Valor = rep(ensemble_roc_val, 5)))
+}
+
+# --- 13) Preparar dados para plot (ordenar fatores etc.) ---
+ordered_levels <- c("Ensemble", "GLM", "GAM", "GBM", "RF", "MAXENT")
+tss_data$Modelo <- factor(as.character(tss_data$Modelo), levels = ordered_levels)
+roc_data$Modelo <- factor(as.character(roc_data$Modelo), levels = ordered_levels)
+
+# --- 14) Plots de confiabilidade (melhor visualização) ---
+# TSS violin
+tss_violin <- ggplot(tss_data, aes(x = Modelo, y = Valor, fill = Modelo)) +
+  geom_violin(alpha = 0.35, trim = TRUE, width = 0.8, color = NA) +
+  geom_boxplot(width = 0.45, alpha = 0.9, outlier.size = 1.3, outlier.color = "red") +
+  geom_jitter(width = 0.12, alpha = 0.6, color = "darkgray", size = 1) +
+  stat_summary(fun = mean, geom = "point", shape = 18, size = 3, color = "black") +
+  stat_summary(fun = mean, geom = "text", aes(label = sprintf("μ:%.3f", ..y..)), vjust = -2, size = 3, color = "black") +
+  geom_hline(yintercept = 0.7, linetype = "dashed", color = "red") +
+  scale_fill_viridis_d(option = "C", alpha = 0.7) +
+  theme_minimal() + ylim(0,1) +
+  labs(title = "Confiabilidade dos Modelos - TSS", y = "TSS", x = "Modelo") +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5, face = "bold"))
+
+# ROC violin
+roc_violin <- ggplot(roc_data, aes(x = Modelo, y = Valor, fill = Modelo)) +
+  geom_violin(alpha = 0.35, trim = TRUE, width = 0.8, color = NA) +
+  geom_boxplot(width = 0.45, alpha = 0.9, outlier.size = 1.3, outlier.color = "red") +
+  geom_jitter(width = 0.12, alpha = 0.6, color = "darkgray", size = 1) +
+  stat_summary(fun = mean, geom = "point", shape = 18, size = 3, color = "black") +
+  stat_summary(fun = mean, geom = "text", aes(label = sprintf("μ:%.3f", ..y..)), vjust = -2, size = 3, color = "black") +
+  geom_hline(yintercept = 0.8, linetype = "dashed", color = "red") +
+  scale_fill_viridis_d(option = "C", alpha = 0.7) +
+  theme_minimal() + ylim(0,1) +
+  labs(title = "Confiabilidade dos Modelos - ROC", y = "ROC (AUC)", x = "Modelo") +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5, face = "bold"))
+
+# Salvar gráficos
+eval_violin_plot <- tss_violin / roc_violin + plot_annotation(title = "Avaliação da Confiabilidade dos Modelos (TSS e ROC)")
+ggsave(file.path(output_dir, "03A_Confiabilidade_Modelos_Violino_teste43.png"), eval_violin_plot, width = 14, height = 10, dpi = 300)
+
+# --- 15) Painel final (mapa ensemble + importance + variables + evaluation) ---
+# Preparar dados geográficos e pres_coords
+countries <- ne_countries(scale = "medium", returnclass = "sf")
+pres_coords <- data.frame(lon = coords$x, lat = coords$y)
+
+# 1) mapa adequabilidade (usando a primeira banda do ensemble)
+suitability_map <- ggplot() +
+  geom_spatraster(data = ensemble_raster_single) +
+  geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.2) +
+  geom_point(data = pres_coords, aes(x = lon, y = lat), color = "red", size = 1, alpha = 0.6) +
+  scale_fill_viridis_c(option = "plasma", name = "Adequabilidade") +
+  coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
+  theme_minimal() +
+  labs(title = "Mapa de Adequabilidade do Habitat - Ensemble") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+# 2) importance plot
+importance_plot <- ggplot(importance_df, aes(x = reorder(var, importance), y = importance, fill = var)) +
+  geom_col() + geom_text(aes(label = sprintf("%.3f", importance)), hjust = -0.1, size = 3) +
+  coord_flip() + theme_minimal() + labs(title = "Importância das Variáveis (Ensemble)", x = "", y = "Importância") +
+  theme(legend.position = "none")
+
+# 3) variable side panels (mapa + violin) - para cada variável do env_data4layers
+create_variable_side_panel <- function(r, varname, pres_coords, countries, importance_value) {
+  # map (left)
+  map_plot <- ggplot() +
+    geom_spatraster(data = r) +
+    geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.1) +
+    geom_point(data = pres_coords, aes(x = lon, y = lat), color = "red", size = 0.6) +
+    scale_fill_viridis_c(option = "viridis", name = varname) +
+    coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
+    theme_minimal() + labs(title = varname)
+  # violin (right)
+  vals_presenca <- terra::extract(r, pres_coords[, c("lon", "lat")])[,2]
+  vals_presenca <- vals_presenca[!is.na(vals_presenca)]
+  vals_fundo <- sample(values(r)[!is.na(values(r))], min(600, sum(!is.na(values(r)))))
+  violin_data <- data.frame(valor = c(vals_presenca, vals_fundo), tipo = c(rep("Presença", length(vals_presenca)), rep("Fundo", length(vals_fundo))))
+  stats <- violin_data %>% group_by(tipo) %>% summarise(media = mean(valor, na.rm = TRUE), n = n())
+  violin_plot <- ggplot(violin_data, aes(x = tipo, y = valor, fill = tipo)) +
+    geom_violin() + geom_boxplot(width = 0.12) +
+    geom_jitter(width = 0.1, size = 0.5) + theme_minimal() +
+    labs(title = paste("Distribuição -", varname)) +
+    theme(legend.position = "none") +
+    geom_text(data = stats, aes(x = tipo, y = min(violin_data$valor, na.rm = TRUE), label = sprintf("μ: %.2f\nn: %d", media, n)), vjust = -1, size = 2.5)
+  return(map_plot | violin_plot)
+}
+
+variable_side_panels <- list()
+env_stack_4layers <- rast(env_data4layers) # terra SpatRaster
+for (i in seq_len(terra::nlyr(env_stack_4layers))) {
+  varname <- names(env_stack_4layers)[i]
+  importance_value <- importance_df$importance[which(importance_df$var == varname)]
+  variable_side_panels[[varname]] <- create_variable_side_panel(env_stack_4layers[[i]], varname, pres_coords, countries, importance_value)
+}
+
+variables_grid_side <- wrap_plots(variable_side_panels, ncol = 2, nrow = 2) + plot_annotation(title = "Variáveis Ambientais: Mapas e Distribuições")
+
+# 4) evaluation_side: usar os dois plots já gerados (tss_violin, roc_violin) lado a lado
+evaluation_side <- tss_violin | roc_violin
+
+# Montar painel final
+final_panel <- (suitability_map | importance_plot) / 
+  variables_grid_side / 
+  evaluation_side + 
+  plot_annotation(title = "RELATÓRIO COMPLETO - MODELAGEM DE NICHO ECOLÓGICO")
+
+# Salvar painel final
+ggsave(file.path(output_dir, "04_Painel_Final_Corrigido_LadoaLado_teste43.png"), final_panel, width = 22, height = 24, dpi = 300)
+
+cat("Script finalizado. Arquivos salvos em:", output_dir, "\n")
