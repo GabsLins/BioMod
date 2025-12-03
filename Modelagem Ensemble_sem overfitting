@@ -18,7 +18,7 @@ library(rnaturalearthdata)
 library(viridis)
 
 # --- 1) Configurações e diretórios ---
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste43_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste47_ensemble"
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 set.seed(42) # reprodutibilidade
@@ -30,7 +30,7 @@ resp.var <- rep(1, nrow(coords))      # respostas (presença)
 sp <- SpatialPoints(coords, proj4string = CRS("+proj=longlat +datum=WGS84"))
 
 occ_data <- data.frame(species = rep("Vampyrum_spectrum", nrow(coords)), lon = coords$x, lat = coords$y)
-write.csv(occ_data, file.path(output_dir, "dados_ocorrencia_teste43.csv"), row.names = FALSE)
+write.csv(occ_data, file.path(output_dir, "dados_ocorrencia_teste47.csv"), row.names = FALSE)
 
 # --- 3) Camadas ambientais (4 variáveis) ---
 vaporpressure <- raster("C:/Users/Administrador/Desktop/GAB/Mod/meanvaporpressure.tif")
@@ -54,10 +54,10 @@ names(env_data4layers) <- c("Pressao_Vapor", "Vento", "Relevo", "Variacao_de_Tem
 cat("Camadas carregadas:\n"); print(names(env_data4layers))
 
 # Opcional: salvar camadas processadas
-writeRaster(vaporpressure, file.path(output_dir, "vaporpressure_processado_teste43.tif"), overwrite = TRUE)
-writeRaster(wind, file.path(output_dir, "wind_processado_teste43.tif"), overwrite = TRUE)
-writeRaster(relevo, file.path(output_dir, "relevo_processado_teste43.tif"), overwrite = TRUE)
-writeRaster(BIO7, file.path(output_dir, "BIO7_processado_teste43.tif"), overwrite = TRUE)
+writeRaster(vaporpressure, file.path(output_dir, "vaporpressure_processado_teste47.tif"), overwrite = TRUE)
+writeRaster(wind, file.path(output_dir, "wind_processado_teste47.tif"), overwrite = TRUE)
+writeRaster(relevo, file.path(output_dir, "relevo_processado_teste47.tif"), overwrite = TRUE)
+writeRaster(BIO7, file.path(output_dir, "BIO7_processado_teste47.tif"), overwrite = TRUE)
 
 # --- 4) Formatação para BIOMOD2 ---
 biomod_data4layers <- BIOMOD_FormatingData(
@@ -72,7 +72,7 @@ biomod_data4layers <- BIOMOD_FormatingData(
   filter.raster = TRUE,
   resp.name = "Vampyrum.spectrum"
 )
-saveRDS(biomod_data4layers, file.path(output_dir, "biomod_data4layers_teste43.rds"))
+saveRDS(biomod_data4layers, file.path(output_dir, "biomod_data4layers_teste47.rds"))
 
 # --- 5) Opções de modelagem (tentar reduzir complexidade para evitar overfitting) ---
 myOptions <- BIOMOD_ModelingOptions(
@@ -89,7 +89,7 @@ myOptions <- BIOMOD_ModelingOptions(
 # --- 6) Modelagem ---
 models_4layers <- BIOMOD_Modeling(
   biomod_data4layers,
-  modeling.id = "teste43",
+  modeling.id = "teste47",
   models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'),
   BIOMOD_ModelingOptions = myOptions,
   CV.strategy = 'block',   # validação espacial (reduz overfitting)
@@ -98,24 +98,24 @@ models_4layers <- BIOMOD_Modeling(
   var.import = 3,
   metric.eval = c('TSS', 'ROC')
 )
-saveRDS(models_4layers, file.path(output_dir, "models_4layers_teste43.rds"))
+saveRDS(models_4layers, file.path(output_dir, "models_4layers_teste47.rds"))
 cat("Modelagem concluída.\n")
 
 # --- 7) Projeção dos modelos (individuais) ---
 projections_4layers <- BIOMOD_Projection(
   bm.mod = models_4layers,
-  proj.name = "current_teste43",
+  proj.name = "current_teste47",
   new.env = env_data4layers,
   models.chosen = "all"
 )
-saveRDS(projections_4layers, file.path(output_dir, "projections_4layers_teste43.rds"))
+saveRDS(projections_4layers, file.path(output_dir, "projections_4layers_teste47.rds"))
 
 proj_stack <- get_predictions(projections_4layers)
 proj_names <- names(proj_stack)
 for (i in seq_len(terra::nlyr(proj_stack))) {
   camada <- proj_stack[[i]]
   nome <- proj_names[i]
-  terra::writeRaster(camada, file.path(output_dir, paste0("proj_", nome, "_teste43.tif")), overwrite = TRUE)
+  terra::writeRaster(camada, file.path(output_dir, paste0("proj_", nome, "_teste47.tif")), overwrite = TRUE)
 }
 
 # --- 8) Ensemble modeling ---
@@ -129,11 +129,11 @@ ensemble_4layers <- BIOMOD_EnsembleModeling(
   var.import = 3,
   seed.val = 42
 )
-saveRDS(ensemble_4layers, file.path(output_dir, "ensemble_4layers_teste43.rds"))
+saveRDS(ensemble_4layers, file.path(output_dir, "ensemble_4layers_teste47.rds"))
 
 # Extrair avaliações do ensemble (salvar)
 ensemble_eval <- get_evaluations(ensemble_4layers)
-write.csv(as.data.frame(ensemble_eval), file.path(output_dir, "ensemble_evaluations_teste43.csv"), row.names = FALSE)
+write.csv(as.data.frame(ensemble_eval), file.path(output_dir, "ensemble_evaluations_teste47.csv"), row.names = FALSE)
 
 # --- 9) Importância no ensemble ---
 EMvar_imp4 <- get_variables_importance(ensemble_4layers)
@@ -142,23 +142,23 @@ EMimp_expl4 <- data.frame(expl_var = EMvar_imp_df4$expl.var, var_imp = as.numeri
 EMmean_imp_var4 <- aggregate(var_imp ~ expl_var, data = EMimp_expl4, FUN = mean)
 EMmean_imp_var4 <- arrange(EMmean_imp_var4, desc(var_imp))
 EMmean_imp_var4$expl_var <- names(env_data4layers) # garantir nomes
-write.csv(EMmean_imp_var4, file.path(output_dir, "ensemble_var_importance_4layers_teste43.csv"), row.names = FALSE)
+write.csv(EMmean_imp_var4, file.path(output_dir, "ensemble_var_importance_4layers_teste47.csv"), row.names = FALSE)
 importance_df <- data.frame(var = EMmean_imp_var4$expl_var, importance = EMmean_imp_var4$var_imp)
 
 # --- 10) Projeção do ensemble final ---
 myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble_4layers,
-  proj.name = "ensemble_teste43",
+  proj.name = "ensemble_teste47",
   models.chosen = "all",
   new.env = env_data4layers,
   binary.meth = c('TSS','ROC'),
   compress = FALSE
 )
-saveRDS(myBiomodEnsembleProj, file.path(output_dir, "ensemble_projection_4layers_teste43.rds"))
+saveRDS(myBiomodEnsembleProj, file.path(output_dir, "ensemble_projection_4layers_teste47.rds"))
 
 # Observação: a função BIOMOD_EnsembleForecasting pode produzir um SpatRaster com múltiplas bandas.
 # Para plot com tidyterra (geom_spatraster) escolha a camada desejada (ex.: primeira).
-ensemble_raster_all <- rast(file.path(output_dir, "ensemble_projection_4layers_teste43.tif"))
+ensemble_raster_all <- rast(file.path(output_dir, "ensemble_projection_4layers_teste47.tif"))
 # se for multi-layer, use a primeira camada para o mapa de adequabilidade
 ensemble_raster_single <- ensemble_raster_all[[1]]
 
@@ -262,7 +262,7 @@ roc_violin <- ggplot(roc_data, aes(x = Modelo, y = Valor, fill = Modelo)) +
 
 # Salvar gráficos
 eval_violin_plot <- tss_violin / roc_violin + plot_annotation(title = "Avaliação da Confiabilidade dos Modelos (TSS e ROC)")
-ggsave(file.path(output_dir, "03A_Confiabilidade_Modelos_Violino_teste43.png"), eval_violin_plot, width = 14, height = 10, dpi = 300)
+ggsave(file.path(output_dir, "03A_Confiabilidade_Modelos_Violino_teste47.png"), eval_violin_plot, width = 14, height = 10, dpi = 300)
 
 # --- 15) Painel final (mapa ensemble + importance + variables + evaluation) ---
 # Preparar dados geográficos e pres_coords
@@ -331,6 +331,6 @@ final_panel <- (suitability_map | importance_plot) /
   plot_annotation(title = "RELATÓRIO COMPLETO - MODELAGEM DE NICHO ECOLÓGICO")
 
 # Salvar painel final
-ggsave(file.path(output_dir, "04_Painel_Final_Corrigido_LadoaLado_teste43.png"), final_panel, width = 22, height = 24, dpi = 300)
+ggsave(file.path(output_dir, "04_Painel_Final_Corrigido_LadoaLado_teste47.png"), final_panel, width = 22, height = 24, dpi = 300)
 
 cat("Script finalizado. Arquivos salvos em:", output_dir, "\n")
