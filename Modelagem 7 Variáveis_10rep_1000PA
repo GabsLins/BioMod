@@ -1,0 +1,577 @@
+##Biomod2 teste
+#31/10/2025
+
+## TODAS AS VARIAVEIS
+
+library(biomod2)
+library(sp)
+library(raster)
+library(dplyr)
+library(ENMeval)
+library(randomForest)
+library(terra)
+library(ggplot2)
+library(tidyterra)
+library(sf)
+library(patchwork)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(kernlab)
+library(reshape2)
+
+###### ALL LAYERS
+## Occurrence data
+occurence <- read.csv("C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All3.csv")
+coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
+resp.var <- rep(1, 295)
+sp <- SpatialPoints(coords, proj4string = CRS("EPSG:4326"))
+
+occ_data <- data.frame(
+  species = rep("Vampyrum_spectrum", 295),
+  lon = c(coords$x),
+  lat = c(coords$y)
+)
+
+## Environmental data
+library(raster)
+
+# Carregando as camadas
+precipBIO12 <- raster("C:/Users/Administrador/Desktop/GAB/Mod/precipitacao_media_anual.tif")
+vaporpressure <- raster("C:/Users/Administrador/Desktop/GAB/Mod/meanvaporpressure.tif")
+wind <- raster("C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif")
+relevo <- raster("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif")
+NDVI <- raster("C:/Users/Administrador/Desktop/GAB/Mod/NDVI/NDVI_america.tif")
+LAI <- raster("C:/Users/Administrador/Desktop/GAB/Mod/LAI.tif")
+BIO7 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
+
+# Definir a nova extensão com os novos limites
+ext_america <- extent(-170, -26, -56, 72)
+
+# Redimensionar e recortar
+res <- 0.1  
+
+precipBIO12 <- resample(crop(precipBIO12, ext_america), precipBIO12, method='bilinear')
+vaporpressure <- resample(crop(vaporpressure, ext_america), precipBIO12, method='bilinear')
+wind <- resample(crop(wind, ext_america), precipBIO12, method='bilinear')
+relevo <- resample(crop(relevo, ext_america), precipBIO12, method='bilinear')
+NDVI <- resample(crop(NDVI, ext_america), precipBIO12, method='bilinear')
+LAI <- resample(crop(LAI, ext_america), precipBIO12, method='bilinear')
+BIO7 <- resample(crop(BIO7, ext_america), precipBIO12, method='bilinear')
+
+# CORREÇÃO 1: REMOVER RELEVO MARINHO (valores abaixo de 0m)
+relevo[relevo < 0] <- NA
+
+# CORREÇÃO 2: NOMEAR AS VARIÁVEIS CORRETAMENTE
+env_data <- stack(precipBIO12, vaporpressure, wind, relevo, NDVI, LAI, BIO7)
+
+# Atribuir nomes descritivos às variáveis
+names(env_data) <- c("Precipitacao_Anual_BIO_12", "Pressao_Vapor", "Vento_Medio", 
+                     "Relevo", "NDVI", "LAI", "BIO_7")
+
+# Verificar os nomes
+cat("Variáveis no stack com nomes corrigidos:\n")
+print(names(env_data))
+
+## BioMod2 Formated Data Object
+biomod_data <- BIOMOD_FormatingData(
+  resp.var = resp.var,
+  expl.var = env_data,
+  resp.xy = coords,
+  PA.nb.rep = 10, ### Tentar usar 30 rep se tiver mais de 32GB RAM, usar 7 se tiver menos de 16GB RAM ou 10rep se tiver 32GB; primeiramente usei 5 rep
+  PA.nb.absences = 1000, ### Tentar usar 10000 PA implica em precisar de mais 15GB RAM; antes usei 600 PA e deu overfitting quando teste com 1500 pois o TSS foi extremamente baixo
+  PA.strategy = "jackknife",  # ← Sugerida
+  PA.dist.min = 3000,        # Distância mínima das presências (em metros)
+  PA.dist.max = 150000,       # Distância máxima das presências
+  filter.raster = TRUE,
+  resp.name = "Vampyrum.spectrum"
+)
+
+
+## BioMod2 Modeling
+library(ENMeval)
+library(randomForest)
+library(kernlab)
+
+myOptions <- BIOMOD_ModelingOptions(
+  GBM = list(
+    n.trees = 100,
+    interaction.depth = 3,
+    shrinkage = 0.01,
+    bag.fraction = 0.7
+  ),
+  RF = list(
+    n.trees = 1000, # antes usei 500
+    mtry = 4, # Antes usei 2
+    nodesize = 10, # Antes usei 5
+    maxnodes = 30
+  ),
+)
+
+## Se precisar baixar o java: https://github.com/ojdkbuild/ojdkbuild/releases/latest , o arquivo e o x86_64.zip
+
+models <- BIOMOD_Modeling(
+  bm.format = biomod_data,
+  modeling.id = "current",
+  models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'),
+  bm.options = myOptions,
+  CV.strategy = 'block',
+  CV.nb.rep = 5,  ## se aumentar para 5, fica mais confiável, mas mais lento; antes usei 3
+  prevalence = 0.5,
+  var.import = 3,
+  metric.eval = c('TSS', 'ROC'),
+)
+
+## Save Graphical outputs
+gg1 <- bm_PlotEvalMean(models, metric.eval = c("TSS", "ROC"), dataset = "calibration", do.plot = TRUE) ## SALVAR MANUALMENTE
+dev.new()
+gg2 <- bm_PlotEvalMean(models, metric.eval = c("TSS", "ROC"), dataset = "validation", do.plot = TRUE) ## SALVAR MANUALMENTE
+
+
+## Variables importance
+var_importance <- get_variables_importance(models)
+var_imp_df <- as.data.frame(var_importance, stringsAsFactors = FALSE)
+imp_expl <- data.frame(
+  expl_var = var_imp_df$expl.var,
+  var_imp = as.numeric(var_imp_df$var.imp),
+  stringsAsFactors = FALSE
+)
+mean_imp_var <- arrange(aggregate(var_imp ~ expl_var, data = imp_expl, FUN = mean), desc(var_imp))
+
+# Salvar importância com nomes corretos
+write.csv(mean_imp_var, "C:/Users/Administrador/Desktop/GAB/Mod/var_importance_todas_variaveis_teste42.csv", row.names = FALSE)
+
+cat("Importância das variáveis (com nomes corretos):\n")
+print(mean_imp_var)
+
+
+## BioMod2 Projections
+library(tidyterra)
+library(ggplot2)
+
+# Projeção dos modelos
+projections <- BIOMOD_Projection(
+  bm.mod = models,
+  proj.name = "proj_current",
+  new.env = env_data,
+  models.chosen = "all"
+)
+
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste42_semCover_rep10_1500PA_FALSE_RFspecific"
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
+proj_stack <- get_predictions(projections)
+proj_names <- names(proj_stack)
+
+# Loop usando terra
+for (i in 1:terra::nlyr(proj_stack)) {
+  camada <- proj_stack[[i]]
+  nome <- proj_names[i]
+  
+  out_tif <- file.path(output_dir, paste0(nome, ".tif"))
+  out_png <- file.path(output_dir, paste0(nome, ".png"))
+  
+  # Salvar raster como GeoTIFF
+  terra::writeRaster(camada, out_tif, overwrite = TRUE)
+
+  # Salvar PNG
+  p <- autoplot(camada) +
+    ggtitle(paste("Projeção -", nome)) +
+    theme_minimal(base_size = 22)
+  
+  ggsave(filename = out_png, plot = p, width = 3840, height = 2160, units = "px", dpi = 300)
+}
+
+
+## BioMod2 Ensemble
+ensemble <- BIOMOD_EnsembleModeling(
+  bm.mod = models,
+  models.chosen = "all",
+  em.by = "all",
+  em.algo = c('EMmean', 'EMci'),
+  metric.select = c('TSS','ROC'),
+  metric.select.thresh = c(0.5, 0.7),
+  var.import = 3,
+  seed.val = 42
+)
+
+# Avaliações do ensemble
+ensemble_eval <- get_evaluations(ensemble)
+cat("Avaliação do ensemble:\n")
+print(ensemble_eval)
+
+EMvar_imp <- get_variables_importance(ensemble)
+EMvar_imp_df <- as.data.frame(EMvar_imp, stringsAsFactors = FALSE)
+EMimp_expl <- data.frame(
+  expl_var = EMvar_imp_df$expl.var,
+  var_imp = as.numeric(EMvar_imp_df$var.imp),
+  stringsAsFactors = FALSE
+)
+EMmean_imp_var <- arrange(aggregate(var_imp ~ expl_var, data = EMimp_expl, FUN = mean), desc(var_imp))
+
+# Salvar importância do ensemble com nomes corretos
+write.csv(EMmean_imp_var, "C:/Users/Administrador/Desktop/GAB/Mod/ensemble_var_importance_todas_variaveis_teste42.csv", row.names = FALSE)
+
+cat("Importância das variáveis no ensemble (com nomes corretos):\n")
+print(EMmean_imp_var)
+
+# Gráficos de avaliação
+bm_PlotEvalMean(bm.out = ensemble, dataset = 'calibration')
+bm_PlotEvalBoxplot(bm.out = ensemble, group.by = c('algo', 'algo'))
+
+
+## Ensemble projection
+EnsembleProj <- BIOMOD_EnsembleForecasting(
+  bm.em = ensemble,
+  proj.name = "ensemble",
+  models.chosen = "all",
+  new.env = env_data,
+  binary.meth = NULL,
+  compress = FALSE
+)
+
+# Salvar o ensemble
+ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble", "proj_ensemble_Vampyrum.spectrum_ensemble.tif"))
+writeRaster(ensemble_raster, file.path(output_dir, "ensemble_projection_todas_variaveis_teste42.tif"), overwrite = TRUE)
+
+# Plot do ensemble
+plot(EnsembleProj)
+
+# ============================
+# RELATÓRIO DAS CORREÇÕES APLICADAS
+# ============================
+
+cat("\n", rep("=", 70), "\n", sep = "")
+cat("CORREÇÕES APLICADAS - TODAS AS VARIÁVEIS\n")
+cat(rep("=", 70), "\n\n")
+
+cat("✓ CORREÇÃO 1: Relevo marinho removido (valores < 0m excluídos)\n")
+cat("✓ CORREÇÃO 2: Variáveis nomeadas corretamente:\n")
+cat("   1. Precipitacao_Anual\n")
+cat("   2. Temperatura_Maxima\n")
+cat("   3. Temperatura_Media\n")
+cat("   4. Temperatura_Minima\n")
+cat("   5. Pressao_Vapor\n")
+cat("   6. Vento_Medio\n")
+cat("   7. Relevo (apenas áreas terrestres)\n")
+cat("   8. NDVI\n")
+cat("   9. LAI\n\n")
+
+cat("Arquivos salvos:\n")
+cat("- Importância das variáveis: C:/Administrador/tunho/Desktop/GAB/Mod/var_importance_todas_variaveis.csv\n")
+cat("- Importância do ensemble: C:/Administrador/tunho/Desktop/GAB/Mod/ensemble_var_importance_todas_variaveis.csv\n")
+cat("- Projeções: ", output_dir, "\n")
+cat(rep("=", 70), "\n")
+
+# ============================
+# DIAGNÓSTICO RÁPIDO DAS VARIÁVEIS
+# ============================
+
+cat("\nDIAGNÓSTICO DAS VARIÁVEIS:\n")
+for(i in 1:nlayers(env_data)) {
+  var_name <- names(env_data)[i]
+  var_values <- values(env_data[[i]])
+  var_values <- var_values[!is.na(var_values)]
+  
+  cat(sprintf("%d. %s: Min=%.2f, Max=%.2f, Mediana=%.2f, NAs=%d\n",
+              i, var_name, 
+              min(var_values), max(var_values), median(var_values),
+              sum(is.na(values(env_data[[i]])))))
+}
+
+# Verificar especificamente o relevo
+cat("\nVERIFICAÇÃO DO RELEVO (após correção):\n")
+relevo_values <- values(relevo)
+relevo_values <- relevo_values[!is.na(relevo_values)]
+cat("Relevo - Valores após correção:\n")
+cat("  Min:", min(relevo_values), "m\n")
+cat("  Max:", max(relevo_values), "m\n")
+cat("  Valores negativos removidos:", sum(relevo_values < 0), "\n")
+cat("  Total de pixels válidos:", length(relevo_values), "\n")
+
+# ============================
+# MODELAGEM COMPLETA - ENSEMBLE COM 4 VARIÁVEIS (teste43)
+# ============================
+
+# ============================
+# CARREGAR PACOTES
+# ============================
+
+library(biomod2)
+library(sp)
+library(raster)
+library(dplyr)
+library(ENMeval)
+library(randomForest)
+library(terra)
+library(ggplot2)
+library(tidyterra)
+library(sf)
+library(patchwork)
+library(rnaturalearth)
+library(rnaturalearthdata)
+
+# ============================
+# CONFIGURAÇÃO INICIAL
+# ============================
+
+## Definir diretório de saída
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste43_ensemble"
+
+# Criar diretório se não existir
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+cat("Diretório de saída:", output_dir, "\n")
+
+# ============================
+# DADOS DE OCORRÊNCIA
+# ============================
+
+## Occurrence data
+occurence <- read.csv("C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All3.csv")
+coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
+resp.var <- rep(1, 295)
+sp <- SpatialPoints(coords, proj4string = CRS("EPSG:4326"))
+
+occ_data <- data.frame(
+  species = rep("Vampyrum_spectrum", 295), 
+  lon = c(coords$x),
+  lat = c(coords$y)
+)
+
+# Salvar dados de ocorrência
+write.csv(occ_data, file.path(output_dir, "dados_ocorrencia_teste43.csv"), row.names = FALSE)
+
+cat("Dados de ocorrência carregados:", nrow(occ_data), "registros\n")
+
+# ============================
+# DADOS AMBIENTAIS
+# ============================
+
+## Environmental data
+vaporpressure <- raster("C:/Users/Administrador/Desktop/GAB/Mod/meanvaporpressure.tif")
+wind <- raster("C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif")
+relevo <- raster("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif")
+BIO7 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
+
+# Definir a nova extensão com os novos limites
+ext_america <- extent(-170, -26, -56, 72)
+
+# Redimensionar e recortar
+res <- 0.1  
+
+vaporpressure <- resample(crop(vaporpressure, ext_america), BIO7, method='bilinear')
+wind <- resample(crop(wind, ext_america), BIO7, method='bilinear')
+relevo <- resample(crop(relevo, ext_america), BIO7, method='bilinear')
+BIO7 <- resample(crop(BIO7, ext_america), BIO7, method='bilinear')
+
+# CORREÇÃO: REMOVER RELEVO MARINHO
+relevo[relevo < 0] <- NA
+
+# Nomear as variáveis corretamente
+env_data4layers <- stack(vaporpressure, wind, relevo, BIO7)
+names(env_data4layers) <- c("Pressao_Vapor", "Vento", "Relevo", "Variacao_de_Temperatura")
+
+cat("Variáveis ambientais carregadas:\n")
+print(names(env_data4layers))
+
+# Salvar variáveis processadas
+writeRaster(vaporpressure, file.path(output_dir, "vaporpressure_processado_teste43.tif"), overwrite = TRUE)
+writeRaster(wind, file.path(output_dir, "wind_processado_teste43.tif"), overwrite = TRUE)
+writeRaster(relevo, file.path(output_dir, "relevo_processado_teste43.tif"), overwrite = TRUE)
+writeRaster(BIO7, file.path(output_dir, "BIO7_processado_teste43.tif"), overwrite = TRUE)
+
+# ============================
+# MODELAGEM BIOMOD2
+# ============================
+
+## BioMod2 Formated Data Object
+cat("Formatando dados para BIOMOD2...\n")
+
+biomod_data4layers <- BIOMOD_FormatingData(
+  resp.var = resp.var, 
+  expl.var = env_data4layers, 
+  resp.xy = coords,
+  PA.nb.rep = 10,
+  PA.nb.absences = 1000,
+  PA.strategy = "jackknife",  # ← Sugerida
+  PA.dist.min = 3000,        # Distância mínima das presências (em metros)
+  PA.dist.max = 150000,       # Distância máxima das presências
+  filter.raster = TRUE,
+  resp.name = "Vampyrum.spectrum"
+)
+
+# Salvar dados formatados
+saveRDS(biomod_data4layers, file.path(output_dir, "biomod_data4layers_teste43.rds"))
+
+## BioMod2 Modeling
+cat("Iniciando modelagem com 5 algoritmos...\n")
+
+# Opções de modelagem
+myOptions <- BIOMOD_ModelingOptions(
+  RF = list(
+    n.trees = 1000,
+    mtry = 4,
+    nodesize = 10,
+    maxnodes = 30
+  ),
+  GBM = list(n.trees = 100)
+)
+
+models_4layers <- BIOMOD_Modeling(
+    biomod_data4layers,
+    modeling.id = "teste43", 
+    models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'), 
+    CV.strategy = 'block',
+    prevalence = 0.5,
+    var.import = 3,
+    metric.eval = c('TSS', 'ROC')
+)
+
+# Salvar modelos
+saveRDS(models_4layers, file.path(output_dir, "models_4layers_teste43.rds"))
+
+cat("Modelagem concluída com sucesso!\n")
+
+# ============================
+# AVALIAÇÃO DOS MODELOS
+# ============================
+
+## Save Graphical outputs
+cat("Gerando gráficos de avaliação...\n")
+
+gg1_4layers <- bm_PlotEvalMean(models_4layers, metric.eval = c("TSS", "ROC"), dataset = "calibration", do.plot = TRUE)
+## ESSA LINHA NAO ESTA FUNCIONANDO - ggsave(file.path(output_dir, "eval_mean_calibration_4layers_teste43.png"), plot = gg1_4layers, width = 611, height = 354, dpi = 300)
+
+gg2_4layers <- bm_PlotEvalMean(models_4layers, metric.eval = c("TSS", "ROC"), dataset = "validation", do.plot = TRUE)
+## ESSA LINHA NAO ESTA FUNCIONANDO - ggsave(file.path(output_dir, "eval_mean_validation_4layers_teste43.png"), plot = gg2_4layers, width = 611, height = 354, dpi = 300)
+
+## Variables importance dos modelos individuais
+cat("Calculando importância das variáveis...\n")
+
+var_importance4 <- get_variables_importance(models_4layers)
+var_imp_df4 <- as.data.frame(var_importance4, stringsAsFactors = FALSE)
+imp_expl4 <- data.frame(
+  expl_var = var_imp_df4$expl.var,
+  var_imp = as.numeric(var_imp_df4$var.imp),
+  stringsAsFactors = FALSE
+)
+mean_imp_var_4layers <- aggregate(var_imp ~ expl_var, data = imp_expl4, FUN = mean)
+mean_imp_var_4layers <- arrange(mean_imp_var_4layers, desc(var_imp))
+
+# Salvar importância das variáveis
+write.csv(mean_imp_var_4layers, file.path(output_dir, "var_importance_4layers_teste43.csv"), row.names = FALSE)
+
+cat("Importância das variáveis (modelos individuais):\n")
+print(mean_imp_var_4layers)
+
+# ============================
+# PROJEÇÕES DOS MODELOS
+# ============================
+
+## BioMod2 Projections
+cat("Gerando projeções dos modelos...\n")
+
+projections_4layers <- BIOMOD_Projection(
+  bm.mod = models_4layers,
+  proj.name = "current_teste43",
+  new.env = env_data4layers,
+  models.chosen = "all"
+) 
+
+# Salvar projeções
+saveRDS(projections_4layers, file.path(output_dir, "projections_4layers_teste43.rds"))
+
+# Salvar mapas individuais
+proj_stack <- get_predictions(projections_4layers)
+proj_names <- names(proj_stack)
+
+for (i in 1:terra::nlyr(proj_stack)) {
+  camada <- proj_stack[[i]]
+  nome <- proj_names[i]
+  
+  out_tif <- file.path(output_dir, paste0("proj_", nome, "_teste43.tif"))
+  out_png <- file.path(output_dir, paste0("proj_", nome, "_teste43.png"))
+  
+  terra::writeRaster(camada, out_tif, overwrite = TRUE)
+  
+  p <- autoplot(camada) +
+    ggtitle(paste("Projeção -", nome)) +
+    theme_minimal()
+  
+  ggsave(filename = out_png, plot = p, width = 10, height = 8, dpi = 300)
+}
+
+cat("Projeções salvas com sucesso!\n")
+
+# ============================
+# MODELO ENSEMBLE
+# ============================
+
+## BioMod2 Ensemble
+cat("Criando modelo ensemble...\n")
+
+ensemble_4layers <- BIOMOD_EnsembleModeling(
+  bm.mod = models_4layers,
+  models.chosen = "all",
+  em.by = "all",
+  em.algo = c('EMmean', 'EMci'),
+  metric.select = c('TSS','ROC'),
+  metric.select.thresh = c(0.5, 0.7),
+  var.import = 3,
+  seed.val = 42
+)
+
+# Salvar ensemble
+saveRDS(ensemble_4layers, file.path(output_dir, "ensemble_4layers_teste43.rds"))
+
+# Avaliações do ensemble
+ensemble_eval <- get_evaluations(ensemble_4layers)
+write.csv(ensemble_eval, file.path(output_dir, "ensemble_evaluations_teste43.csv"), row.names = FALSE)
+
+cat("Avaliação do ensemble:\n")
+print(ensemble_eval)
+
+# ============================
+# IMPORTÂNCIA DAS VARIÁVEIS NO ENSEMBLE
+# ============================
+
+cat("Calculando importância das variáveis no ensemble...\n")
+
+EMvar_imp4 <- get_variables_importance(ensemble_4layers)
+EMvar_imp_df4 <- as.data.frame(EMvar_imp4, stringsAsFactors = FALSE)
+
+EMimp_expl4 <- data.frame(
+  expl_var = EMvar_imp_df4$expl.var,
+  var_imp = as.numeric(EMvar_imp_df4$var.imp),
+  stringsAsFactors = FALSE
+)
+
+EMmean_imp_var4 <- aggregate(var_imp ~ expl_var, data = EMimp_expl4, FUN = mean)
+EMmean_imp_var4 <- arrange(EMmean_imp_var4, desc(var_imp))
+
+# Garantir que os nomes estejam corretos
+EMmean_imp_var4$expl_var <- names(env_data4layers)
+
+# Salvar importância do ensemble
+write.csv(EMmean_imp_var4, file.path(output_dir, "ensemble_var_importance_4layers_teste43.csv"), row.names = FALSE)
+
+cat("Importância das variáveis no ensemble:\n")
+print(EMmean_imp_var4)
+
+# ============================
+# PROJEÇÃO DO ENSEMBLE
+# ============================
+
+## Ensemble projection
+cat("Gerando projeção do ensemble...\n")
+
+myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
+  bm.em = ensemble_4layers,
+  proj.name = "ensemble_teste43",
+  models.chosen = "all",
+  new.env = env_data4layers,
+  binary.meth = c('TSS','ROC'),
+  compress = FALSE
+)
