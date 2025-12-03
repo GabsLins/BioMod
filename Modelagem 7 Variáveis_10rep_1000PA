@@ -584,3 +584,123 @@ ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble_
 writeRaster(ensemble_raster, file.path(output_dir, "ensemble_projection_4layers_teste43.tif"), overwrite = TRUE)
 
 cat("Projeção do ensemble salva com sucesso!\n")
+
+
+## ==================================
+## VERIFICAR TSS E ROC DO MODELO ENSEMBLE
+## ==================================
+
+# =============================================================
+# EXTRAIR TSS E ROC DOS MODELOS INDIVIDUAIS + CALCULAR ENSEMBLE
+# =============================================================
+
+cat("\nExtraindo TSS e ROC dos modelos...\n")
+
+# 1) Obter tabela completa de avaliações dos modelos
+model_evaluations <- get_evaluations(models_4layers)
+
+# -------------------------------------------------------------
+# 2) Extrair TSS
+# -------------------------------------------------------------
+tss_data <- model_evaluations %>% 
+  filter(metric.eval == "TSS") %>%
+  mutate(Modelo = algo,
+         Valor  = validation) %>%
+  select(Modelo, Valor)
+
+# -------------------------------------------------------------
+# 3) Extrair ROC
+# -------------------------------------------------------------
+roc_data <- model_evaluations %>% 
+  filter(metric.eval == "ROC") %>%
+  mutate(Modelo = algo,
+         Valor  = validation) %>%
+  select(Modelo, Valor)
+
+cat("TSS extraídos:", nrow(tss_data), "\n")
+cat("ROC extraídos:", nrow(roc_data), "\n")
+
+# -------------------------------------------------------------
+# 4) Calcular métricas do ENSEMBLE como média do conjunto
+# -------------------------------------------------------------
+
+ensemble_tss <- mean(tss_data$Valor, na.rm = TRUE)
+ensemble_roc <- mean(roc_data$Valor, na.rm = TRUE)
+
+cat("\nValor médio do ENSEMBLE - TSS:", ensemble_tss, "\n")
+cat("Valor médio do ENSEMBLE - ROC:", ensemble_roc, "\n")
+
+# Para que apareça no violino, criamos 10 repetições
+tss_data <- rbind(tss_data,
+                  data.frame(Modelo = "Ensemble",
+                             Valor = rep(ensemble_tss, 10)))
+
+roc_data <- rbind(roc_data,
+                  data.frame(Modelo = "Ensemble",
+                             Valor = rep(ensemble_roc, 10)))
+
+# =============================================================
+# VIOLIN PLOTS – TSS E ROC COM MÉDIA + N + CAIXA INTERNA
+# =============================================================
+
+library(ggplot2)
+
+# Paleta igual ao estilo anterior
+cores_modelos <- c(
+  "Ensemble" = "#2D2D2D",
+  "GAM" = "#6A0DAD",
+  "GBM" = "#E75480",
+  "GLM" = "#FF8C42",
+  "MAXENT" = "#FFC300",
+  "RF" = "#9ACD32"
+)
+
+# Função para gerar gráfico
+plot_violin <- function(df, titulo, metrica, linha_ref) {
+
+  media_df <- df %>% 
+    group_by(Modelo) %>% 
+    summarise(Media = mean(Valor),
+              N = n())
+
+  ggplot(df, aes(x = Modelo, y = Valor, fill = Modelo)) +
+    geom_violin(trim = TRUE, alpha = 0.8) +
+    geom_boxplot(width = 0.15, outlier.shape = NA, fill = "white") +
+    geom_point(position = position_jitter(width = 0.05), size = 1.5, alpha = 0.6) +
+    geom_hline(yintercept = linha_ref, linetype = "dashed", color = "red") +
+    geom_text(data = media_df,
+              aes(x = Modelo, y = 0, 
+                  label = paste0("μ=", round(Media,3), "\n(n=",N,")")),
+              vjust = -1.5, size = 3) +
+    scale_fill_manual(values = cores_modelos) +
+    labs(title = titulo,
+         subtitle = paste("Distribuição dos valores de", metrica),
+         y = metrica, x = "Modelo") +
+    theme_minimal(base_size = 14) +
+    theme(legend.position = "none",
+          plot.title = element_text(face = "bold", size = 18))
+}
+
+# =============================================================
+# GERAR GRÁFICOS
+# =============================================================
+
+plot_tss <- plot_violin(tss_data,
+                        "Confiabilidade dos Modelos - TSS",
+                        "TSS",
+                        linha_ref = 0.7)
+
+plot_roc <- plot_violin(roc_data,
+                        "Confiabilidade dos Modelos - ROC",
+                        "ROC",
+                        linha_ref = 0.8)
+
+# Exibir
+print(plot_tss)
+print(plot_roc)
+
+# Salvar
+ggsave(file.path(output_dir, "TSS_violins.png"), plot_tss, width = 12, height = 7)
+ggsave(file.path(output_dir, "ROC_violins.png"), plot_roc, width = 12, height = 7)
+
+cat("\nPlots de TSS e ROC gerados com sucesso!\n")
