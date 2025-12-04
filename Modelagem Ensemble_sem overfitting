@@ -104,8 +104,8 @@ if (file.exists(bmdata_path)) {
       resp.var = resp.var,
       expl.var = env_data4layers,
       resp.xy = coords,
-      PA.nb.rep = 10,
-      PA.nb.absences = 1500,
+      PA.nb.rep = 7,
+      PA.nb.absences = 5000,
       PA.strategy = "jackknife",
       PA.dist.min = 20000,
       PA.dist.max = 150000,
@@ -117,8 +117,10 @@ if (file.exists(bmdata_path)) {
 
 # --- 5) Model options (reduzir complexidade para evitar overfitting) ---
 myOptions <- BIOMOD_ModelingOptions(
-  RF = list(n.trees = 500, mtry = 2, nodesize = 10, maxnodes = 30),
-  GBM = list(n.trees = 200, interaction.depth = 3, shrinkage = 0.01, bag.fraction = 0.7)
+  RF = list(n.trees = 500, mtry = 3, nodesize = 10, maxnodes = 30),
+  GBM = list(n.trees = 200, interaction.depth = 2, shrinkage = 0.01, bag.fraction = 0.5),
+  MAXENT = list(betamultiplier = 2, features = "lq"),
+  GAM = list(k = 3)
 )
 
 # --- 6) Modelagem (checkpoint) ---
@@ -189,6 +191,9 @@ if (!is.null(proj_stack)) {
   warning("get_predictions(projections_4layers) retornou NULL — pular salvamento de projeções individuais.")
 }
 
+saveRDS(projections_4layers, projections_path)
+
+
 # --- 8) Ensemble modeling (checkpoint) ---
 ensemble_path <- file.path(output_dir, "ensemble_4layers_teste47.rds")
 if (file.exists(ensemble_path)) {
@@ -210,7 +215,7 @@ if (file.exists(ensemble_path)) {
   }, error = function(e) {
     stop("BIOMOD_EnsembleModeling falhou: ", conditionMessage(e))
   })
-  safe_saveRDS(ensemble_4layers, ensemble_path)
+  saveRDS(ensemble_4layers, ensemble_path)
 }
 
 # salvar avaliações do ensemble
@@ -259,7 +264,7 @@ if (file.exists(ensemble_proj_path)) {
   }, error = function(e) {
     stop("BIOMOD_EnsembleForecasting falhou: ", conditionMessage(e))
   })
-  safe_saveRDS(myBiomodEnsembleProj, ensemble_proj_path)
+  saveRDS(myBiomodEnsembleProj, ensemble_proj_path)
 }
 
 # Tentar extrair raster do forecasting (várias implementações do biomod podem depositar arquivos em pastas)
