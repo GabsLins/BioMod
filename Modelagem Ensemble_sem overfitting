@@ -104,7 +104,7 @@ if (file.exists(bmdata_path)) {
       resp.var = resp.var,
       expl.var = env_data4layers,
       resp.xy = coords,
-      PA.nb.rep = 7,
+      PA.nb.rep = 10,
       PA.nb.absences = 5000,
       PA.strategy = "jackknife",
       PA.dist.min = 20000,
