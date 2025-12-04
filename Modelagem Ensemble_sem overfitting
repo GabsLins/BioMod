@@ -123,28 +123,36 @@ myOptions <- BIOMOD_ModelingOptions(
 
 # --- 6) Modelagem (checkpoint) ---
 models_path <- file.path(output_dir, "models_4layers_teste47.rds")
+
 if (file.exists(models_path)) {
-  models_4layers <- readRDS(models_path)
-  cat("✔ models_4layers carregado do checkpoint.\n")
+
+    models_4layers <- readRDS(models_path)
+    cat("✔ models_4layers carregado do checkpoint.\n")
+
 } else {
-  cat("Executando BIOMOD_Modeling (pode demorar)...\n")
-  models_4layers <- tryCatch({
-    BIOMOD_Modeling(
-      biomod_data4layers,
-      modeling.id = "teste47",
-      models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'),
-      models.options = myOptions,
-      CV.strategy = 'block',
-      CV.nb.rep = 3,
-      prevalence = 0.5,
-      var.import = 3,
-      metric.eval = c('TSS', 'ROC')
-    )
-  }, error = function(e) {
-    stop("BIOMOD_Modeling falhou: ", conditionMessage(e))
-  })
-  safe_saveRDS(models_4layers, models_path)
-  cat("✔ Modelagem finalizada e salva.\n")
+
+    cat("Executando BIOMOD_Modeling (pode demorar)...\n")
+
+    models_4layers <- tryCatch({
+
+        BIOMOD_Modeling(
+            bm.format = biomod_data4layers,
+            modeling.id = "teste47",
+            models = c('GLM','GAM','GBM','RF','MAXENT'),
+            bm.options = myOptions,        # <<<<<< CORREÇÃO FINAL
+            CV.strategy = 'block',
+            CV.nb.rep = 3,
+            prevalence = 0.5,
+            var.import = 3,
+            metric.eval = c('TSS','ROC')
+        )
+
+    }, error = function(e) {
+        stop("BIOMOD_Modeling falhou: ", conditionMessage(e))
+    })
+
+    saveRDS(models_4layers, models_path)
+    cat("✔ Modelagem finalizada e salva.\n")
 }
 
 # --- 7) Projeção modelos individuais (checkpoint) ---
