@@ -106,7 +106,7 @@ if (file.exists(bmdata_path)) {
       resp.xy = coords,
       PA.nb.rep = 10,
       PA.nb.absences = 5000,
-      PA.strategy = "random",
+      PA.strategy = "random",  ### Aqui eu voltei para "random", acredito que o jackknife/jaccard, pois possivelmente isso está gerando overffiting
       filter.raster = TRUE,
       resp.name = "Vampyrum.spectrum"
     )
