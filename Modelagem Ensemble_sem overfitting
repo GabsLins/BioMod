@@ -22,7 +22,7 @@ library(tibble)
 library(utils)
 
 # --- 1) Configurações e diretórios ---
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste54_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste55_ensemble"
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 set.seed(42)
 
@@ -61,7 +61,7 @@ resp.var <- rep(1, nrow(coords))
 sp <- SpatialPoints(coords, proj4string = CRS("+proj=longlat +datum=WGS84"))
 
 occ_data <- data.frame(species = rep("Vampyrum_spectrum", nrow(coords)), lon = coords$x, lat = coords$y)
-write.csv(occ_data, file.path(output_dir, "dados_ocorrencia_teste54.csv"), row.names = FALSE)
+write.csv(occ_data, file.path(output_dir, "dados_ocorrencia_teste55.csv"), row.names = FALSE)
 cat("✓ Ocorrências salvas. N:", nrow(occ_data), "\n")
 
 # --- 3) Camadas ambientais (4 variáveis) ---
@@ -87,14 +87,14 @@ names(env_data4layers) <- c("Pressao_Vapor", "Vento", "Relevo", "Variacao_de_Tem
 cat("Camadas carregadas:", paste(names(env_data4layers), collapse = ", "), "\n")
 
 # salvar camadas processadas (checkpoints)
-writeRaster(vaporpressure, file.path(output_dir, "vaporpressure_processado_teste54.tif"), overwrite = TRUE)
-writeRaster(wind, file.path(output_dir, "wind_processado_teste54.tif"), overwrite = TRUE)
-writeRaster(relevo, file.path(output_dir, "relevo_processado_teste54.tif"), overwrite = TRUE)
-writeRaster(BIO7, file.path(output_dir, "BIO7_processado_teste54.tif"), overwrite = TRUE)
+writeRaster(vaporpressure, file.path(output_dir, "vaporpressure_processado_teste55.tif"), overwrite = TRUE)
+writeRaster(wind, file.path(output_dir, "wind_processado_teste55.tif"), overwrite = TRUE)
+writeRaster(relevo, file.path(output_dir, "relevo_processado_teste55.tif"), overwrite = TRUE)
+writeRaster(BIO7, file.path(output_dir, "BIO7_processado_teste55.tif"), overwrite = TRUE)
 
 # --- 4) Formatação BIOMOD2 (checkpoint) ---
 cat("Formatando dados para BIOMOD2...\n")
-bmdata_path <- file.path(output_dir, "biomod_data4layers_teste54.rds")
+bmdata_path <- file.path(output_dir, "biomod_data4layers_teste55.rds")
 if (file.exists(bmdata_path)) {
   biomod_data4layers <- readRDS(bmdata_path)
   cat("✔ biomod_data4layers carregado do checkpoint.\n")
@@ -105,7 +105,7 @@ if (file.exists(bmdata_path)) {
       expl.var = env_data4layers,
       resp.xy = coords,
       PA.nb.rep = 10,
-      PA.nb.absences = 2000,
+      PA.nb.absences = 600,
       PA.strategy = "random",  ### Aqui eu voltei para "random", acredito que o jackknife/jaccard, pois possivelmente isso está gerando overffiting
       PA.dist.min = 20000,   # 20 km (ajuste)
       PA.dist.max = 150000,  # 150 km (ajuste)
@@ -125,7 +125,7 @@ myOptions <- BIOMOD_ModelingOptions(
 )
 
 # --- 6) Modelagem (checkpoint) ---
-models_path <- file.path(output_dir, "models_4layers_teste54.rds")
+models_path <- file.path(output_dir, "models_4layers_teste55.rds")
 
 if (file.exists(models_path)) {
 
@@ -140,7 +140,7 @@ if (file.exists(models_path)) {
 
         BIOMOD_Modeling(
             bm.format = biomod_data4layers,
-            modeling.id = "teste54",
+            modeling.id = "teste55",
             models = c('GLM','GAM','GBM','RF','MAXENT'),
             bm.options = myOptions,        # <<<<<< CORREÇÃO FINAL
             CV.strategy = 'block',
@@ -159,7 +159,7 @@ if (file.exists(models_path)) {
 }
 
 # --- 7) Projeção modelos individuais (checkpoint) ---
-projections_path <- file.path(output_dir, "projections_4layers_teste54.rds")
+projections_path <- file.path(output_dir, "projections_4layers_teste55.rds")
 if (file.exists(projections_path)) {
   projections_4layers <- readRDS(projections_path)
   cat("✔ projections_4layers carregado do checkpoint.\n")
@@ -168,7 +168,7 @@ if (file.exists(projections_path)) {
   projections_4layers <- tryCatch({
     BIOMOD_Projection(
       bm.mod = models_4layers,
-      proj.name = "current_teste54",
+      proj.name = "current_teste55",
       new.env = env_data4layers,
       models.chosen = "all"
     )
@@ -185,7 +185,7 @@ if (!is.null(proj_stack)) {
   for (i in seq_len(terra::nlyr(proj_stack))) {
     camada <- proj_stack[[i]]
     nome <- proj_names[i]
-    terra::writeRaster(camada, file.path(output_dir, paste0("proj_", nome, "_teste54.tif")), overwrite = TRUE)
+    terra::writeRaster(camada, file.path(output_dir, paste0("proj_", nome, "_teste55.tif")), overwrite = TRUE)
   }
   cat("✔ Projeções individuais salvas.\n")
 } else {
@@ -196,7 +196,7 @@ saveRDS(projections_4layers, projections_path)
 
 
 # --- 8) Ensemble modeling (checkpoint) ---
-ensemble_path <- file.path(output_dir, "ensemble_4layers_teste54.rds")
+ensemble_path <- file.path(output_dir, "ensemble_4layers_teste55.rds")
 if (file.exists(ensemble_path)) {
   ensemble_4layers <- readRDS(ensemble_path)
   cat("✔ ensemble_4layers carregado do checkpoint.\n")
@@ -222,7 +222,7 @@ if (file.exists(ensemble_path)) {
 # salvar avaliações do ensemble
 ensemble_eval <- tryCatch({ get_evaluations(ensemble_4layers) }, error = function(e) NULL)
 if (!is.null(ensemble_eval)) {
-  write.csv(as.data.frame(ensemble_eval), file.path(output_dir, "ensemble_evaluations_teste54.csv"), row.names = FALSE)
+  write.csv(as.data.frame(ensemble_eval), file.path(output_dir, "ensemble_evaluations_teste55.csv"), row.names = FALSE)
   cat("✔ Ensemble evaluations salvos.\n")
 } else {
   warning("Não foi possível extrair ensemble evaluations.")
@@ -236,7 +236,7 @@ if (!is.null(EMvar_imp4)) {
   EMmean_imp_var4 <- aggregate(var_imp ~ expl_var, data = EMimp_expl4, FUN = mean)
   EMmean_imp_var4 <- arrange(EMmean_imp_var4, desc(var_imp))
   EMmean_imp_var4$expl_var <- names(env_data4layers)
-  write.csv(EMmean_imp_var4, file.path(output_dir, "ensemble_var_importance_4layers_teste54.csv"), row.names = FALSE)
+  write.csv(EMmean_imp_var4, file.path(output_dir, "ensemble_var_importance_4layers_teste55.csv"), row.names = FALSE)
   importance_df <- data.frame(var = EMmean_imp_var4$expl_var, importance = EMmean_imp_var4$var_imp)
   cat("✔ Importance saved.\n")
 } else {
@@ -245,8 +245,8 @@ if (!is.null(EMvar_imp4)) {
 }
 
 # --- 10) Ensemble Forecasting (projeção) ---
-ensemble_proj_path <- file.path(output_dir, "ensemble_projection_4layers_teste54.rds")
-ensemble_tif_path  <- file.path(output_dir, "ensemble_projection_4layers_teste54.tif")
+ensemble_proj_path <- file.path(output_dir, "ensemble_projection_4layers_teste55.rds")
+ensemble_tif_path  <- file.path(output_dir, "ensemble_projection_4layers_teste55.tif")
 
 if (file.exists(ensemble_proj_path)) {
   myBiomodEnsembleProj <- readRDS(ensemble_proj_path)
@@ -256,7 +256,7 @@ if (file.exists(ensemble_proj_path)) {
   myBiomodEnsembleProj <- tryCatch({
     BIOMOD_EnsembleForecasting(
       bm.em = ensemble_4layers,
-      proj.name = "ensemble_teste54",
+      proj.name = "ensemble_teste55",
       models.chosen = "all",
       new.env = env_data4layers,
       binary.meth = c('TSS','ROC'),
@@ -271,9 +271,9 @@ if (file.exists(ensemble_proj_path)) {
 # Tentar extrair raster do forecasting (várias implementações do biomod podem depositar arquivos em pastas)
 # Tentativa 1: procurar arquivo .tif gerado na pasta de trabalho padrão do BIOMOD
 possible_paths <- c(
-  file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble_teste54", "proj_ensemble_teste54_Vampyrum.spectrum_ensemble.tif"),
-  file.path(output_dir, "proj_ensemble_teste54_Vampyrum.spectrum_ensemble.tif"),
-  file.path(output_dir, "ensemble_projection_4layers_teste54.tif")
+  file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble_teste55", "proj_ensemble_teste55_Vampyrum.spectrum_ensemble.tif"),
+  file.path(output_dir, "proj_ensemble_teste55_Vampyrum.spectrum_ensemble.tif"),
+  file.path(output_dir, "ensemble_projection_4layers_teste55.tif")
 )
 ensemble_raster_all <- NULL
 for (p in possible_paths) {
@@ -370,8 +370,8 @@ tss_data <- tss_data %>% filter(!is.na(Valor)) %>% mutate(Valor = pmax(0, pmin(1
 roc_data <- roc_data %>% filter(!is.na(Valor)) %>% mutate(Valor = pmax(0, pmin(1, as.numeric(Valor))))
 
 # salvar dados de avaliação (checkpoint)
-write.csv(tss_data, file.path(output_dir, "tss_data_real_teste54.csv"), row.names = FALSE)
-write.csv(roc_data, file.path(output_dir, "roc_data_real_teste54.csv"), row.names = FALSE)
+write.csv(tss_data, file.path(output_dir, "tss_data_real_teste55.csv"), row.names = FALSE)
+write.csv(roc_data, file.path(output_dir, "roc_data_real_teste55.csv"), row.names = FALSE)
 
 # --- 14) Plots de confiabilidade (melhor visualização) ---
 cat("Gerando plots de confiabilidade (TSS / ROC)...\n")
@@ -401,7 +401,7 @@ roc_violin <- ggplot(roc_data, aes(x = Modelo, y = Valor, fill = Modelo)) +
   theme(legend.position = "none", plot.title = element_text(hjust = 0.5, face = "bold"))
 
 eval_violin_plot <- tss_violin / roc_violin + plot_annotation(title = "Avaliação da Confiabilidade dos Modelos (TSS e ROC)")
-ggsave(file.path(output_dir, "03A_Confiabilidade_Modelos_Violino_teste54.png"), eval_violin_plot, width = 14, height = 10, dpi = 300)
+ggsave(file.path(output_dir, "03A_Confiabilidade_Modelos_Violino_teste55.png"), eval_violin_plot, width = 14, height = 10, dpi = 300)
 cat("✔ Plots de confiabilidade salvos.\n")
 
 # --- 15) Painel final (mapa ensemble + importance + variables + evaluation) ---
@@ -471,7 +471,7 @@ evaluation_side <- tss_violin | roc_violin
 final_panel <- (suitability_map | importance_plot) / variables_grid_side / evaluation_side + plot_annotation(title = "RELATÓRIO COMPLETO - MODELAGEM DE NICHO ECOLÓGICO")
 
 # salvar painel final (grande)
-ggsave(file.path(output_dir, "04_Painel_Final_Corrigido_LadoaLado_teste54.png"), final_panel, width = 22, height = 24, dpi = 300)
+ggsave(file.path(output_dir, "04_Painel_Final_Corrigido_LadoaLado_teste55.png"), final_panel, width = 22, height = 24, dpi = 300)
 cat("✔ Painel final salvo.\n")
 
 cat("Script finalizado. Arquivos salvos em:", output_dir, "\n")
