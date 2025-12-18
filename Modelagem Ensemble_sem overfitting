@@ -105,8 +105,10 @@ if (file.exists(bmdata_path)) {
       expl.var = env_data4layers,
       resp.xy = coords,
       PA.nb.rep = 10,
-      PA.nb.absences = 5000,
+      PA.nb.absences = 2000,
       PA.strategy = "random",  ### Aqui eu voltei para "random", acredito que o jackknife/jaccard, pois possivelmente isso está gerando overffiting
+      PA.dist.min = 20000,   # 20 km (ajuste)
+      PA.dist.max = 150000,  # 150 km (ajuste)
       filter.raster = TRUE,
       resp.name = "Vampyrum.spectrum"
     )
@@ -142,8 +144,8 @@ if (file.exists(models_path)) {
             models = c('GLM','GAM','GBM','RF','MAXENT'),
             bm.options = myOptions,        # <<<<<< CORREÇÃO FINAL
             CV.strategy = 'block',
-            CV.nb.rep = 2,
-            prevalence = 0.5,
+            CV.nb.rep = 5,
+            prevalence = 0.5, ## talvez eu anule esse valor se o TSS permanecer baixo
             var.import = 3,
             metric.eval = c('TSS','ROC')
         )
