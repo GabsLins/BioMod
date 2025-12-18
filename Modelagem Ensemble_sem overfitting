@@ -145,7 +145,7 @@ if (file.exists(models_path)) {
             bm.options = myOptions,        # <<<<<< CORREÇÃO FINAL
             CV.strategy = 'block',
             CV.nb.rep = 5,
-            prevalence = 0.0, ## talvez eu anule esse valor se o TSS permanecer baixo
+            prevalence = 0.5, ## talvez eu anule esse valor se o TSS permanecer baixo
             var.import = 3,
             metric.eval = c('TSS','ROC')
         )
