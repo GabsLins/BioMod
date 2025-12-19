@@ -1,34 +1,40 @@
 # ======================================================
-# SCRIPT AJUSTADO: Modelagem (4 variáveis) + Ensemble + Plots + Checkpoints
+# MODELAGEM COM BUFFER (M) NA CALIBRAÇÃO + PROJEÇÃO NO MAPA GRANDE
+# Vampyrum spectrum | BIOMOD2
 # ======================================================
-# Autor: Gabriel Lins
-# Data: 17-12-25
+# Autor: Gabriel Lins (adaptado)
+# Data: 18-12-25
 # ======================================================
 
 # --- 0) Pacotes ---
-library(biomod2)
-library(sp)
-library(raster)
-library(terra)
-library(dplyr)
-library(ggplot2)
-library(tidyterra)
-library(sf)
-library(patchwork)
-library(rnaturalearth)
-library(rnaturalearthdata)
-library(viridis)
-library(tibble)
-library(utils)
+suppressPackageStartupMessages({
+  library(biomod2)
+  library(sp)
+  library(raster)
+  library(terra)
+  library(dplyr)
+  library(ggplot2)
+  library(tidyterra)
+  library(sf)
+  library(patchwork)
+  library(rnaturalearth)
+  library(rnaturalearthdata)
+  library(viridis)
+  library(tibble)
+  library(utils)
+})
 
 # --- 1) Configurações e diretórios ---
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste55_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste56"
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 set.seed(42)
 
 cat("Output dir:", output_dir, "\n")
 
-# Helper: safe saveRDS wrapper
+# >>>>>>>>>>>> AJUSTE AQUI: BUFFER EM KM (2 ou 5) <<<<<<<<<<<<
+buffer_km <- 50  # recomendado com pixel ~5 km; teste 2 km se quiser
+
+# Helpers
 safe_saveRDS <- function(obj, path) {
   tryCatch({
     saveRDS(obj, path)
@@ -38,7 +44,6 @@ safe_saveRDS <- function(obj, path) {
   })
 }
 
-# Helper: wrap heavy step with tryCatch and save error log
 run_safe <- function(expr, checkpoint_file = NULL) {
   tryCatch({
     res <- eval(expr)
@@ -52,32 +57,40 @@ run_safe <- function(expr, checkpoint_file = NULL) {
   })
 }
 
-# --- 2) Dados de ocorrência ---
+# ======================================================
+# 2) Dados de ocorrência
+# ======================================================
 cat("Carregando ocorrências...\n")
 occ_csv <- "C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All3.csv"
 occurence <- read.csv(occ_csv)
+
 coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
+coords <- coords[complete.cases(coords), , drop = FALSE]
+
 resp.var <- rep(1, nrow(coords))
-sp <- SpatialPoints(coords, proj4string = CRS("+proj=longlat +datum=WGS84"))
+sp_pts <- SpatialPoints(coords, proj4string = CRS("+proj=longlat +datum=WGS84"))
 
 occ_data <- data.frame(species = rep("Vampyrum_spectrum", nrow(coords)), lon = coords$x, lat = coords$y)
-write.csv(occ_data, file.path(output_dir, "dados_ocorrencia_teste55.csv"), row.names = FALSE)
+write.csv(occ_data, file.path(output_dir, paste0("dados_ocorrencia_buffer_", buffer_km, "km.csv")), row.names = FALSE)
 cat("✓ Ocorrências salvas. N:", nrow(occ_data), "\n")
 
-# --- 3) Camadas ambientais (4 variáveis) ---
+# ======================================================
+# 3) Camadas ambientais (4 variáveis) no MAPA GRANDE
+# ======================================================
 cat("Carregando camadas ambientais...\n")
 vaporpressure <- raster("C:/Users/Administrador/Desktop/GAB/Mod/meanvaporpressure.tif")
-wind <- raster("C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif")
-relevo <- raster("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif")
-BIO7 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
+wind          <- raster("C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif")
+relevo        <- raster("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif")
+BIO7          <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
 
+# EXTENSÃO GRANDE (mantida)
 ext_america <- extent(-170, -26, -56, 72)
 
 # Resample / crop to BIO7 reference
-vaporpressure <- resample(crop(vaporpressure, ext_america), BIO7, method = 'bilinear')
-wind         <- resample(crop(wind, ext_america), BIO7, method = 'bilinear')
-relevo       <- resample(crop(relevo, ext_america), BIO7, method = 'bilinear')
-BIO7         <- resample(crop(BIO7, ext_america), BIO7, method = 'bilinear')
+vaporpressure <- resample(crop(vaporpressure, ext_america), BIO7, method = "bilinear")
+wind          <- resample(crop(wind, ext_america), BIO7, method = "bilinear")
+relevo        <- resample(crop(relevo, ext_america), BIO7, method = "bilinear")
+BIO7          <- resample(crop(BIO7, ext_america), BIO7, method = "bilinear")
 
 # remover relevo marinho
 relevo[relevo < 0] <- NA
@@ -87,14 +100,64 @@ names(env_data4layers) <- c("Pressao_Vapor", "Vento", "Relevo", "Variacao_de_Tem
 cat("Camadas carregadas:", paste(names(env_data4layers), collapse = ", "), "\n")
 
 # salvar camadas processadas (checkpoints)
-writeRaster(vaporpressure, file.path(output_dir, "vaporpressure_processado_teste55.tif"), overwrite = TRUE)
-writeRaster(wind, file.path(output_dir, "wind_processado_teste55.tif"), overwrite = TRUE)
-writeRaster(relevo, file.path(output_dir, "relevo_processado_teste55.tif"), overwrite = TRUE)
-writeRaster(BIO7, file.path(output_dir, "BIO7_processado_teste55.tif"), overwrite = TRUE)
+writeRaster(vaporpressure, file.path(output_dir, "vaporpressure_processado.tif"), overwrite = TRUE)
+writeRaster(wind,          file.path(output_dir, "wind_processado.tif"), overwrite = TRUE)
+writeRaster(relevo,        file.path(output_dir, "relevo_processado.tif"), overwrite = TRUE)
+writeRaster(BIO7,          file.path(output_dir, "BIO7_processado.tif"), overwrite = TRUE)
 
-# --- 4) Formatação BIOMOD2 (checkpoint) ---
-cat("Formatando dados para BIOMOD2...\n")
-bmdata_path <- file.path(output_dir, "biomod_data4layers_teste55.rds")
+# ======================================================
+# 4) Criar M por buffer (km) e gerar env_calib (RasterStack)
+# ======================================================
+buffer_km <- 50  # mude aqui: 2 ou 5
+
+cat("Criando máscara M (buffer) de ", buffer_km, " km...\n", sep="")
+
+# Garanta que estamos usando o raster "raster", não terra
+r0 <- env_data4layers[[1]]  # RasterLayer
+
+# Distância (km) da célula ao ponto mais próximo
+d_km <- raster::distanceFromPoints(r0, coords) / 1000  # RasterLayer
+
+# Máscara M (1 dentro do buffer, NA fora) - forma robusta
+M_mask <- raster::calc(d_km, fun = function(x) ifelse(x <= buffer_km, 1, NA))
+M_mask <- raster::mask(M_mask, r0)  # garante alinhamento e NA iguais ao raster base
+
+# Aplicar máscara nas variáveis ambientais para calibração
+env_calib <- raster::mask(env_data4layers, M_mask)
+
+# FORÇAR tipo para evitar incompatibilidade
+env_calib <- raster::stack(env_calib)
+
+# Checagens essenciais (evita rodar com tudo NA)
+cells_in_M <- sum(!is.na(raster::values(M_mask)))
+cat("Células dentro do buffer:", cells_in_M, "\n")
+
+# Se o buffer for pequeno demais (muito provável com 2 km e pixel ~5 km)
+if (cells_in_M < 50) {
+  stop("Buffer muito pequeno para o raster atual (", cells_in_M,
+       " células). Tente buffer_km=5 (mínimo) ou maior.")
+}
+
+# Verifica se alguma camada ficou toda NA
+na_layers <- sapply(1:raster::nlayers(env_calib), function(i) {
+  all(is.na(raster::values(env_calib[[i]])))
+})
+if (any(na_layers)) {
+  stop("Alguma camada em env_calib ficou 100% NA após aplicar o buffer. ",
+       "Isso quebra a formatação. Aumente buffer_km ou revise as camadas.")
+}
+
+# Salvar máscara (opcional)
+raster::writeRaster(M_mask,
+                    filename = file.path(output_dir, paste0("M_mask_buffer_", buffer_km, "km.tif")),
+                    overwrite = TRUE)
+
+# ======================================================
+# 5) Formatação BIOMOD2 (calibração dentro do buffer)
+# ======================================================
+cat("Formatando dados BIOMOD2 (calibração dentro do buffer)...\n")
+bmdata_path <- file.path(output_dir, paste0("biomod_data_buffer_", buffer_km, "km.rds"))
+
 if (file.exists(bmdata_path)) {
   biomod_data4layers <- readRDS(bmdata_path)
   cat("✔ biomod_data4layers carregado do checkpoint.\n")
@@ -102,376 +165,211 @@ if (file.exists(bmdata_path)) {
   biomod_data4layers <- run_safe(quote(
     BIOMOD_FormatingData(
       resp.var = resp.var,
-      expl.var = env_data4layers,
-      resp.xy = coords,
-      PA.nb.rep = 10,
+      expl.var = env_calib,         # <<< calibração só dentro de M
+      resp.xy  = coords,
+      PA.nb.rep = 5,
       PA.nb.absences = 600,
-      PA.strategy = "random",  ### Aqui eu voltei para "random", acredito que o jackknife/jaccard, pois possivelmente isso está gerando overffiting
-      PA.dist.min = 20000,   # 20 km (ajuste)
-      PA.dist.max = 150000,  # 150 km (ajuste)
+      PA.strategy = "random",
+      # IMPORTANTE: com M pequeno, distâncias grandes quebram o sorteio de PA.
+      PA.dist.min = 0,
       filter.raster = TRUE,
       resp.name = "Vampyrum.spectrum"
     )
   ), checkpoint_file = bmdata_path)
 }
 
-# --- 5) Model options (reduzir complexidade para evitar overfitting) ---
+# ======================================================
+# 6) Model options (anti-overfitting) + ajuste RF
+# ======================================================
 myOptions <- BIOMOD_ModelingOptions(
-  RF = list(n.trees = 500, mtry = 2, nodesize = 20, maxnodes = 20),
-  GBM = list(n.trees = 2000, interaction.depth = 2, shrinkage = 0.005, bag.fraction = 0.5, n.minobsinnode = 10),
+  # RF um pouco menos "amarrado" que seu setup anterior
+  RF = list(n.trees = 800, mtry = 2, nodesize = 10, maxnodes = 50),
+
+  GBM = list(n.trees = 2000, interaction.depth = 2, shrinkage = 0.005,
+             bag.fraction = 0.5, n.minobsinnode = 10),
+
   MAXENT = list(betamultiplier = 3, features = "lq"),
+
   GLM = list(type = "simple", interaction.level = 0, test = "BIC"),
+
   GAM = list(algo = "GAM_mgcv", type = "s_smoother", k = 3, interaction.level = 0)
 )
 
-# --- 6) Modelagem (checkpoint) ---
-models_path <- file.path(output_dir, "models_4layers_teste55.rds")
+# ======================================================
+# 7) Modelagem (checkpoint)
+# ======================================================
+models_path <- file.path(output_dir, paste0("models_buffer_", buffer_km, "km.rds"))
 
 if (file.exists(models_path)) {
-
-    models_4layers <- readRDS(models_path)
-    cat("✔ models_4layers carregado do checkpoint.\n")
-
+  models_4layers <- readRDS(models_path)
+  cat("✔ models_4layers carregado do checkpoint.\n")
 } else {
+  cat("Executando BIOMOD_Modeling (CV block)...\n")
 
-    cat("Executando BIOMOD_Modeling (pode demorar)...\n")
+  models_4layers <- BIOMOD_Modeling(
+    bm.format = biomod_data4layers,
+    modeling.id = paste0("buffer_", buffer_km, "km"),
+    models = c("GLM","GAM","GBM","RF","MAXENT"),
+    bm.options = myOptions,
+    CV.strategy = "block",
+    CV.nb.rep = 5,
+    var.import = 3,
+    metric.eval = c("TSS","ROC")
+  )
 
-    models_4layers <- tryCatch({
-
-        BIOMOD_Modeling(
-            bm.format = biomod_data4layers,
-            modeling.id = "teste55",
-            models = c('GLM','GAM','GBM','RF','MAXENT'),
-            bm.options = myOptions,        # <<<<<< CORREÇÃO FINAL
-            CV.strategy = 'block',
-            CV.nb.rep = 5,
-            prevalence = 0.5, ## talvez eu anule esse valor se o TSS permanecer baixo
-            var.import = 3,
-            metric.eval = c('TSS','ROC')
-        )
-
-    }, error = function(e) {
-        stop("BIOMOD_Modeling falhou: ", conditionMessage(e))
-    })
-
-    saveRDS(models_4layers, models_path)
-    cat("✔ Modelagem finalizada e salva.\n")
+  saveRDS(models_4layers, models_path)
+  cat("✔ Modelagem salva.\n")
 }
 
-# --- 7) Projeção modelos individuais (checkpoint) ---
-projections_path <- file.path(output_dir, "projections_4layers_teste55.rds")
+# ======================================================
+# 8) Projeção: MAPA GRANDE (não altera dimensão)
+# ======================================================
+projections_path <- file.path(output_dir, paste0("projections_buffer_", buffer_km, "km.rds"))
+
 if (file.exists(projections_path)) {
   projections_4layers <- readRDS(projections_path)
   cat("✔ projections_4layers carregado do checkpoint.\n")
 } else {
-  cat("Executando BIOMOD_Projection...\n")
-  projections_4layers <- tryCatch({
-    BIOMOD_Projection(
-      bm.mod = models_4layers,
-      proj.name = "current_teste55",
-      new.env = env_data4layers,
-      models.chosen = "all"
-    )
-  }, error = function(e) {
-    stop("BIOMOD_Projection falhou: ", conditionMessage(e))
-  })
-  safe_saveRDS(projections_4layers, projections_path)
+  cat("Executando BIOMOD_Projection no MAPA GRANDE...\n")
+
+  projections_4layers <- BIOMOD_Projection(
+    bm.mod = models_4layers,
+    proj.name = paste0("current_buffer_", buffer_km, "km"),
+    new.env = env_data4layers,    # <<< mapa grande aqui
+    models.chosen = "all"
+  )
+
+  saveRDS(projections_4layers, projections_path)
+  cat("✔ Projeções salvas.\n")
 }
 
-# salvar previsões raster individuais (se disponíveis)
+# salvar rasters das projeções individuais (se disponível)
 proj_stack <- tryCatch({ get_predictions(projections_4layers) }, error = function(e) NULL)
 if (!is.null(proj_stack)) {
   proj_names <- names(proj_stack)
   for (i in seq_len(terra::nlyr(proj_stack))) {
     camada <- proj_stack[[i]]
     nome <- proj_names[i]
-    terra::writeRaster(camada, file.path(output_dir, paste0("proj_", nome, "_teste55.tif")), overwrite = TRUE)
+    terra::writeRaster(camada, file.path(output_dir, paste0("proj_", nome, ".tif")), overwrite = TRUE)
   }
   cat("✔ Projeções individuais salvas.\n")
 } else {
-  warning("get_predictions(projections_4layers) retornou NULL — pular salvamento de projeções individuais.")
+  warning("get_predictions(projections_4layers) retornou NULL — pulando export das projeções.")
 }
 
-saveRDS(projections_4layers, projections_path)
+# ======================================================
+# 9) Ensemble
+# ======================================================
+ensemble_path <- file.path(output_dir, paste0("ensemble_buffer_", buffer_km, "km.rds"))
 
-
-# --- 8) Ensemble modeling (checkpoint) ---
-ensemble_path <- file.path(output_dir, "ensemble_4layers_teste55.rds")
 if (file.exists(ensemble_path)) {
   ensemble_4layers <- readRDS(ensemble_path)
   cat("✔ ensemble_4layers carregado do checkpoint.\n")
 } else {
   cat("Executando BIOMOD_EnsembleModeling...\n")
-  ensemble_4layers <- tryCatch({
-    BIOMOD_EnsembleModeling(
-      bm.mod = models_4layers,
-      models.chosen = "all",
-      em.by = "all",
-      em.algo = c('EMmean', 'EMci'),
-      metric.select = c('TSS','ROC'),
-      metric.select.thresh = c(0.5, 0.7),
-      var.import = 3,
-      seed.val = 42
-    )
-  }, error = function(e) {
-    stop("BIOMOD_EnsembleModeling falhou: ", conditionMessage(e))
-  })
+
+  ensemble_4layers <- BIOMOD_EnsembleModeling(
+    bm.mod = models_4layers,
+    models.chosen = "all",
+    em.by = "all",
+    em.algo = c("EMmean","EMci"),
+    metric.select = c("TSS","ROC"),
+    metric.select.thresh = c(0.5, 0.7),
+    var.import = 3,
+    seed.val = 42
+  )
+
   saveRDS(ensemble_4layers, ensemble_path)
+  cat("✔ Ensemble salvo.\n")
 }
 
-# salvar avaliações do ensemble
 ensemble_eval <- tryCatch({ get_evaluations(ensemble_4layers) }, error = function(e) NULL)
 if (!is.null(ensemble_eval)) {
-  write.csv(as.data.frame(ensemble_eval), file.path(output_dir, "ensemble_evaluations_teste55.csv"), row.names = FALSE)
+  write.csv(as.data.frame(ensemble_eval),
+            file.path(output_dir, paste0("ensemble_evaluations_buffer_", buffer_km, "km.csv")),
+            row.names = FALSE)
   cat("✔ Ensemble evaluations salvos.\n")
-} else {
-  warning("Não foi possível extrair ensemble evaluations.")
 }
 
-# --- 9) Importância no ensemble ---
-EMvar_imp4 <- tryCatch({ get_variables_importance(ensemble_4layers) }, error = function(e) NULL)
-if (!is.null(EMvar_imp4)) {
-  EMvar_imp_df4 <- as.data.frame(EMvar_imp4, stringsAsFactors = FALSE)
-  EMimp_expl4 <- data.frame(expl_var = EMvar_imp_df4$expl.var, var_imp = as.numeric(EMvar_imp_df4$var.imp))
-  EMmean_imp_var4 <- aggregate(var_imp ~ expl_var, data = EMimp_expl4, FUN = mean)
-  EMmean_imp_var4 <- arrange(EMmean_imp_var4, desc(var_imp))
-  EMmean_imp_var4$expl_var <- names(env_data4layers)
-  write.csv(EMmean_imp_var4, file.path(output_dir, "ensemble_var_importance_4layers_teste55.csv"), row.names = FALSE)
-  importance_df <- data.frame(var = EMmean_imp_var4$expl_var, importance = EMmean_imp_var4$var_imp)
-  cat("✔ Importance saved.\n")
-} else {
-  warning("get_variables_importance(ensemble_4layers) retornou NULL.")
-  importance_df <- data.frame(var = names(env_data4layers), importance = rep(NA, nlayers(env_data4layers)))
-}
-
-# --- 10) Ensemble Forecasting (projeção) ---
-ensemble_proj_path <- file.path(output_dir, "ensemble_projection_4layers_teste55.rds")
-ensemble_tif_path  <- file.path(output_dir, "ensemble_projection_4layers_teste55.tif")
+# ======================================================
+# 10) Ensemble Forecasting (MAPA GRANDE)
+# ======================================================
+ensemble_proj_path <- file.path(output_dir, paste0("ensemble_forecast_buffer_", buffer_km, "km.rds"))
 
 if (file.exists(ensemble_proj_path)) {
   myBiomodEnsembleProj <- readRDS(ensemble_proj_path)
-  cat("✔ ensemble forecast carregado do checkpoint.\n")
+  cat("✔ Ensemble forecasting carregado do checkpoint.\n")
 } else {
   cat("Executando BIOMOD_EnsembleForecasting...\n")
-  myBiomodEnsembleProj <- tryCatch({
-    BIOMOD_EnsembleForecasting(
-      bm.em = ensemble_4layers,
-      proj.name = "ensemble_teste55",
-      models.chosen = "all",
-      new.env = env_data4layers,
-      binary.meth = c('TSS','ROC'),
-      compress = FALSE
-    )
-  }, error = function(e) {
-    stop("BIOMOD_EnsembleForecasting falhou: ", conditionMessage(e))
-  })
+
+  myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
+    bm.em = ensemble_4layers,
+    proj.name = paste0("ensemble_buffer_", buffer_km, "km"),
+    models.chosen = "all",
+    new.env = env_data4layers,     # <<< mapa grande aqui
+    binary.meth = c("TSS","ROC"),
+    compress = FALSE
+  )
+
   saveRDS(myBiomodEnsembleProj, ensemble_proj_path)
 }
 
-# Tentar extrair raster do forecasting (várias implementações do biomod podem depositar arquivos em pastas)
-# Tentativa 1: procurar arquivo .tif gerado na pasta de trabalho padrão do BIOMOD
-possible_paths <- c(
-  file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble_teste55", "proj_ensemble_teste55_Vampyrum.spectrum_ensemble.tif"),
-  file.path(output_dir, "proj_ensemble_teste55_Vampyrum.spectrum_ensemble.tif"),
-  file.path(output_dir, "ensemble_projection_4layers_teste55.tif")
-)
-ensemble_raster_all <- NULL
-for (p in possible_paths) {
-  if (file.exists(p)) {
-    ensemble_raster_all <- tryCatch(rast(p), error = function(e) NULL)
-    if (!is.null(ensemble_raster_all)) {
-      message("✔ Found ensemble raster at: ", p)
-      break
-    }
-  }
-}
-# fallback: tentar extrair do object myBiomodEnsembleProj via get_predictions (se disponível)
-if (is.null(ensemble_raster_all)) {
-  preds <- tryCatch({ get_predictions(myBiomodEnsembleProj) }, error = function(e) NULL)
-  if (!is.null(preds)) {
-    # preds pode ser SpatRaster
-    ensemble_raster_all <- preds
-  }
-}
-
-# Se conseguiu um SpatRaster multi-camada, usar primeira camada
-if (!is.null(ensemble_raster_all)) {
-  # write combined to output if not present
-  if (!file.exists(ensemble_tif_path)) {
-    tryCatch({
-      terra::writeRaster(ensemble_raster_all, ensemble_tif_path, overwrite = TRUE)
-      cat("✔ Ensemble raster saved to:", ensemble_tif_path, "\n")
-    }, error = function(e) {
-      warning("Falha ao escrever ensemble raster: ", e$message)
-    })
-  }
-  # selecionar primeira camada para mapa de adequabilidade
-  ensemble_raster_single <- ensemble_raster_all[[1]]
-} else {
-  warning("Não foi possível localizar/gerar raster do ensemble. Mapas serão pulados.")
-  ensemble_raster_single <- NULL
-}
-
-# --- 11) Extrair avaliações REAIS dos modelos individuais (tss/roc) ---
-cat("Extraindo avaliações reais dos modelos individuais (TSS/ROC)...\n")
+# ======================================================
+# 11) Extrair avaliações individuais (TSS/ROC) e salvar
+# ======================================================
+cat("Extraindo avaliações dos modelos (TSS/ROC)...\n")
 model_evaluations_raw <- tryCatch({ get_evaluations(models_4layers) }, error = function(e) NULL)
 if (is.null(model_evaluations_raw)) stop("Não foi possível extrair get_evaluations(models_4layers).")
 
-# Converter para data.frame (forma robusta)
 model_evaluations <- as.data.frame(model_evaluations_raw)
-cat("Dimensões de model_evaluations:", dim(model_evaluations), "\n")
 
-if (!("metric.eval" %in% names(model_evaluations) && "validation" %in% names(model_evaluations))) {
-  stop("Estrutura inesperada em model_evaluations; verifique get_evaluations(models_4layers).")
-}
+tss_data <- model_evaluations %>%
+  filter(metric.eval == "TSS") %>%
+  transmute(Modelo = as.character(algo), Valor = as.numeric(validation))
 
-tss_data <- model_evaluations %>% filter(metric.eval == "TSS") %>% transmute(Modelo = as.character(algo), Valor = as.numeric(validation))
-roc_data <- model_evaluations %>% filter(metric.eval == "ROC") %>% transmute(Modelo = as.character(algo), Valor = as.numeric(validation))
+roc_data <- model_evaluations %>%
+  filter(metric.eval == "ROC") %>%
+  transmute(Modelo = as.character(algo), Valor = as.numeric(validation))
 
-cat("TSS extraídos:", nrow(tss_data), "linhas\n")
-cat("ROC extraídos:", nrow(roc_data), "linhas\n")
+write.csv(tss_data, file.path(output_dir, paste0("tss_data_buffer_", buffer_km, "km.csv")), row.names = FALSE)
+write.csv(roc_data, file.path(output_dir, paste0("roc_data_buffer_", buffer_km, "km.csv")), row.names = FALSE)
 
-# --- 12) Extrair avaliações do ENSEMBLE (EMmean) robustamente ---
-cat("Extraindo avaliações do ensemble (EMmean) ...\n")
-ensemble_eval_df <- as.data.frame(ensemble_eval)
+cat("Médias TSS por algoritmo:\n")
+print(tss_data %>% group_by(Modelo) %>% summarise(media = mean(Valor, na.rm=TRUE), .groups="drop"))
 
-ensemble_tss_val <- NA
-ensemble_roc_val <- NA
+cat("Médias ROC por algoritmo:\n")
+print(roc_data %>% group_by(Modelo) %>% summarise(media = mean(Valor, na.rm=TRUE), .groups="drop"))
 
-if ("algo" %in% names(ensemble_eval_df)) {
-  tmp_tss <- ensemble_eval_df %>% filter(metric.eval == "TSS", algo == "EMmean") %>% pull(validation)
-  tmp_roc <- ensemble_eval_df %>% filter(metric.eval == "ROC", algo == "EMmean") %>% pull(validation)
-  if (length(tmp_tss) > 0) ensemble_tss_val <- mean(as.numeric(tmp_tss), na.rm = TRUE)
-  if (length(tmp_roc) > 0) ensemble_roc_val <- mean(as.numeric(tmp_roc), na.rm = TRUE)
-}
-# fallback: buscar EMmean em full.name
-if ((is.na(ensemble_tss_val) || is.nan(ensemble_tss_val)) && "full.name" %in% names(ensemble_eval_df)) {
-  tmp_tss2 <- ensemble_eval_df %>% filter(metric.eval == "TSS", grepl("EMmean", full.name, ignore.case = TRUE)) %>% pull(validation)
-  if (length(tmp_tss2) > 0) ensemble_tss_val <- mean(as.numeric(tmp_tss2), na.rm = TRUE)
-}
-if ((is.na(ensemble_roc_val) || is.nan(ensemble_roc_val)) && "full.name" %in% names(ensemble_eval_df)) {
-  tmp_roc2 <- ensemble_eval_df %>% filter(metric.eval == "ROC", grepl("EMmean", full.name, ignore.case = TRUE)) %>% pull(validation)
-  if (length(tmp_roc2) > 0) ensemble_roc_val <- mean(as.numeric(tmp_roc2), na.rm = TRUE)
-}
-
-cat("Ensemble TSS (média):", ensemble_tss_val, "\n")
-cat("Ensemble ROC (média):", ensemble_roc_val, "\n")
-
-if (!is.na(ensemble_tss_val)) tss_data <- bind_rows(tss_data, tibble(Modelo = "Ensemble", Valor = rep(ensemble_tss_val, 5)))
-if (!is.na(ensemble_roc_val)) roc_data <- bind_rows(roc_data, tibble(Modelo = "Ensemble", Valor = rep(ensemble_roc_val, 5)))
-
-# --- 13) Preparar dados para plot ---
-ordered_levels <- c("Ensemble", "GLM", "GAM", "GBM", "RF", "MAXENT")
+# ======================================================
+# 12) Plot básico (TSS/ROC)
+# ======================================================
+ordered_levels <- c("GLM","GAM","GBM","RF","MAXENT")
 tss_data$Modelo <- factor(as.character(tss_data$Modelo), levels = ordered_levels)
 roc_data$Modelo <- factor(as.character(roc_data$Modelo), levels = ordered_levels)
 
-# garantir remover NA e Valores inválidos
-tss_data <- tss_data %>% filter(!is.na(Valor)) %>% mutate(Valor = pmax(0, pmin(1, as.numeric(Valor))))
-roc_data <- roc_data %>% filter(!is.na(Valor)) %>% mutate(Valor = pmax(0, pmin(1, as.numeric(Valor))))
-
-# salvar dados de avaliação (checkpoint)
-write.csv(tss_data, file.path(output_dir, "tss_data_real_teste55.csv"), row.names = FALSE)
-write.csv(roc_data, file.path(output_dir, "roc_data_real_teste55.csv"), row.names = FALSE)
-
-# --- 14) Plots de confiabilidade (melhor visualização) ---
-cat("Gerando plots de confiabilidade (TSS / ROC)...\n")
-
-tss_violin <- ggplot(tss_data, aes(x = Modelo, y = Valor, fill = Modelo)) +
-  geom_violin(alpha = 0.35, trim = TRUE, width = 0.8, color = NA) +
-  geom_boxplot(width = 0.45, alpha = 0.9, outlier.size = 1.3, outlier.color = "red") +
-  geom_jitter(width = 0.12, alpha = 0.6, color = "darkgray", size = 1) +
-  stat_summary(fun = mean, geom = "point", shape = 18, size = 3, color = "black") +
-  stat_summary(fun = mean, geom = "text", aes(label = sprintf("μ:%.3f", ..y..)), vjust = -2, size = 3, color = "black") +
+tss_plot <- ggplot(tss_data, aes(x = Modelo, y = Valor, fill = Modelo)) +
+  geom_violin(alpha = 0.35, trim = TRUE, color = NA) +
+  geom_boxplot(width = 0.35, alpha = 0.9, outlier.size = 1.2) +
   geom_hline(yintercept = 0.7, linetype = "dashed", color = "red") +
   scale_fill_viridis_d(option = "C", alpha = 0.7) +
   theme_minimal() + ylim(0,1) +
-  labs(title = "Confiabilidade dos Modelos - TSS", y = "TSS", x = "Modelo") +
+  labs(title = paste0("TSS (CV block) | Buffer ", buffer_km, " km"), y = "TSS", x = "Modelo") +
   theme(legend.position = "none", plot.title = element_text(hjust = 0.5, face = "bold"))
 
-roc_violin <- ggplot(roc_data, aes(x = Modelo, y = Valor, fill = Modelo)) +
-  geom_violin(alpha = 0.35, trim = TRUE, width = 0.8, color = NA) +
-  geom_boxplot(width = 0.45, alpha = 0.9, outlier.size = 1.3, outlier.color = "red") +
-  geom_jitter(width = 0.12, alpha = 0.6, color = "darkgray", size = 1) +
-  stat_summary(fun = mean, geom = "point", shape = 18, size = 3, color = "black") +
-  stat_summary(fun = mean, geom = "text", aes(label = sprintf("μ:%.3f", ..y..)), vjust = -2, size = 3, color = "black") +
+roc_plot <- ggplot(roc_data, aes(x = Modelo, y = Valor, fill = Modelo)) +
+  geom_violin(alpha = 0.35, trim = TRUE, color = NA) +
+  geom_boxplot(width = 0.35, alpha = 0.9, outlier.size = 1.2) +
   geom_hline(yintercept = 0.8, linetype = "dashed", color = "red") +
   scale_fill_viridis_d(option = "C", alpha = 0.7) +
   theme_minimal() + ylim(0,1) +
-  labs(title = "Confiabilidade dos Modelos - ROC", y = "ROC (AUC)", x = "Modelo") +
+  labs(title = paste0("ROC (CV block) | Buffer ", buffer_km, " km"), y = "ROC (AUC)", x = "Modelo") +
   theme(legend.position = "none", plot.title = element_text(hjust = 0.5, face = "bold"))
 
-eval_violin_plot <- tss_violin / roc_violin + plot_annotation(title = "Avaliação da Confiabilidade dos Modelos (TSS e ROC)")
-ggsave(file.path(output_dir, "03A_Confiabilidade_Modelos_Violino_teste55.png"), eval_violin_plot, width = 14, height = 10, dpi = 300)
-cat("✔ Plots de confiabilidade salvos.\n")
+eval_plot <- tss_plot / roc_plot + plot_annotation(
+  title = paste0("Avaliação dos Modelos (Buffer na calibração | Projeção no mapa grande) | ", buffer_km, " km")
+)
 
-# --- 15) Painel final (mapa ensemble + importance + variables + evaluation) ---
-cat("Montando painel final e salvando...\n")
+ggsave(file.path(output_dir, paste0("avaliacao_buffer_", buffer_km, "km.png")),
+       eval_plot, width = 14, height = 10, dpi = 300)
 
-countries <- ne_countries(scale = "medium", returnclass = "sf")
-pres_coords <- data.frame(lon = coords$x, lat = coords$y)
-
-# 1) mapa adequabilidade (usar ensemble_raster_single se disponível)
-if (!is.null(ensemble_raster_single)) {
-  suitability_map <- ggplot() +
-    geom_spatraster(data = ensemble_raster_single) +
-    geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.2) +
-    geom_point(data = pres_coords, aes(x = lon, y = lat), color = "red", size = 1, alpha = 0.6) +
-    scale_fill_viridis_c(option = "plasma", name = "Adequabilidade") +
-    coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
-    theme_minimal() +
-    labs(title = "Mapa de Adequabilidade do Habitat - Ensemble") +
-    theme(plot.title = element_text(hjust = 0.5, face = "bold"))
-} else {
-  suitability_map <- ggplot() + theme_void() + labs(title = "Mapa de Adequabilidade - (não disponível)")
-}
-
-# 2) importance plot
-importance_plot <- ggplot(importance_df, aes(x = reorder(var, importance), y = importance, fill = var)) +
-  geom_col() + geom_text(aes(label = sprintf("%.3f", importance)), hjust = -0.1, size = 3) +
-  coord_flip() + theme_minimal() + labs(title = "Importância das Variáveis (Ensemble)", x = "", y = "Importância") +
-  theme(legend.position = "none")
-
-# 3) variable side panels (mapa + violin)
-create_variable_side_panel <- function(r, varname, pres_coords, countries, importance_value) {
-  map_plot <- ggplot() +
-    geom_spatraster(data = r) +
-    geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.1) +
-    geom_point(data = pres_coords, aes(x = lon, y = lat), color = "red", size = 0.6) +
-    scale_fill_viridis_c(option = "viridis", name = varname) +
-    coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
-    theme_minimal() + labs(title = varname)
-  vals_presenca <- terra::extract(r, pres_coords[, c("lon", "lat")])[,2]
-  vals_presenca <- vals_presenca[!is.na(vals_presenca)]
-  vals_fundo <- sample(values(r)[!is.na(values(r))], min(600, sum(!is.na(values(r)))), replace = FALSE)
-  violin_data <- data.frame(valor = c(vals_presenca, vals_fundo), tipo = c(rep("Presença", length(vals_presenca)), rep("Fundo", length(vals_fundo))))
-  stats <- violin_data %>% group_by(tipo) %>% summarise(media = mean(valor, na.rm = TRUE), n = n(), .groups = 'drop')
-  violin_plot <- ggplot(violin_data, aes(x = tipo, y = valor, fill = tipo)) +
-    geom_violin(alpha = 0.5) + geom_boxplot(width = 0.12) +
-    geom_jitter(width = 0.1, size = 0.5) + theme_minimal() +
-    labs(title = paste("Distribuição -", varname)) +
-    theme(legend.position = "none") +
-    geom_text(data = stats, aes(x = tipo, y = min(violin_data$valor, na.rm = TRUE), label = sprintf("μ: %.2f\nn: %d", media, n)), vjust = -1, size = 2.8)
-  return(map_plot | violin_plot)
-}
-
-variable_side_panels <- list()
-env_stack_4layers <- rast(env_data4layers)
-for (i in seq_len(terra::nlyr(env_stack_4layers))) {
-  varname <- names(env_stack_4layers)[i]
-  importance_value <- importance_df$importance[which(importance_df$var == varname)]
-  variable_side_panels[[varname]] <- create_variable_side_panel(env_stack_4layers[[i]], varname, pres_coords, countries, importance_value)
-}
-
-variables_grid_side <- wrap_plots(variable_side_panels, ncol = 2, nrow = 2) + plot_annotation(title = "Variáveis Ambientais: Mapas e Distribuições")
-
-# evaluation side (usar plots gerados)
-evaluation_side <- tss_violin | roc_violin
-
-# montar painel final
-final_panel <- (suitability_map | importance_plot) / variables_grid_side / evaluation_side + plot_annotation(title = "RELATÓRIO COMPLETO - MODELAGEM DE NICHO ECOLÓGICO")
-
-# salvar painel final (grande)
-ggsave(file.path(output_dir, "04_Painel_Final_Corrigido_LadoaLado_teste55.png"), final_panel, width = 22, height = 24, dpi = 300)
-cat("✔ Painel final salvo.\n")
-
-cat("Script finalizado. Arquivos salvos em:", output_dir, "\n")
+cat("Script finalizado. Saída em:", output_dir, "\n")
