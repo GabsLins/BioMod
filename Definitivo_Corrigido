@@ -47,16 +47,40 @@ wind  <- raster("C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif")
 relevo <- raster("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif")
 BIO7 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
 
+# ---------------------------------
+# Padronização espacial das camadas
+# ---------------------------------
+
+# Raster de referência
+ref <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
+
+# Extensão de trabalho
 ext <- extent(-170, -26, -56, 72)
 
-vaporpressure <- resample(crop(vaporpressure, ext), BIO7)
-wind  <- resample(crop(wind, ext), BIO7)
-relevo <- resample(crop(relevo, ext), BIO7)
-BIO7 <- crop(BIO7, ext)
+# Função de alinhamento seguro
+prep_layer <- function(r, ref, ext) {
+  r <- crop(r, ext)
+  r <- resample(r, ref, method = "bilinear")
+  return(r)
+}
 
-relevo[relevo < 0] <- NA
+# Aplicar a TODAS as camadas (inclusive BIO7)
+BIO7_ref <- prep_layer(ref, ref, ext)
+vaporpressure_ref <- prep_layer(vaporpressure, ref, ext)
+wind_ref <- prep_layer(wind, ref, ext)
+relevo_ref <- prep_layer(relevo, ref, ext)
 
-env <- stack(vaporpressure, wind, relevo, BIO7)
+# Remover relevo marinho
+relevo_ref[relevo_ref < 0] <- NA
+
+# Stack final (agora funciona)
+env <- stack(
+  vaporpressure_ref,
+  wind_ref,
+  relevo_ref,
+  BIO7_ref
+)
+
 names(env) <- c(
   "Pressao_Vapor",
   "Vento",
@@ -64,6 +88,10 @@ names(env) <- c(
   "Variacao_Temperatura"
 )
 
+# Checagem (opcional, mas recomendada)
+print(compareRaster(env, extent = TRUE, rowcol = TRUE,
+                    crs = TRUE, res = TRUE, rotation = TRUE,
+                    stopiffalse = FALSE))
 # -----------------------------
 # 3) BIOMOD – formatação
 # -----------------------------
