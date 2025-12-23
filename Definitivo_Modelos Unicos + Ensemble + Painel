@@ -485,10 +485,8 @@ cat("Modelagem concluída com sucesso!\n")
 cat("Gerando gráficos de avaliação...\n")
 
 gg1_4layers <- bm_PlotEvalMean(models_4layers, metric.eval = c("TSS", "ROC"), dataset = "calibration", do.plot = TRUE)
-ggsave(file.path(output_dir, "eval_mean_calibration_4layers_teste58.png"), plot = gg1_4layers, width = 611, height = 354, dpi = 300)
 
 gg2_4layers <- bm_PlotEvalMean(models_4layers, metric.eval = c("TSS", "ROC"), dataset = "validation", do.plot = TRUE)
-ggsave(file.path(output_dir, "eval_mean_validation_4layers_teste58.png"), plot = gg2_4layers, width = 611, height = 354, dpi = 300)
 
 ## Variables importance dos modelos individuais
 cat("Calculando importância das variáveis...\n")
