@@ -1,9 +1,11 @@
 # ======================================================
-# SCRIPT: Modelagem + Ensemble + Plots + Painel
-# (com correção: TSS/ROC reais incluindo ENSEMBLE no gráfico)
+# MODELAGEM DE NICHO ECOLÓGICO – Vampyrum spectrum
+# Ensemble como linha de referência
 # ======================================================
 
-# --- 0) Pacotes ---
+# -----------------------------
+# 0) Pacotes
+# -----------------------------
 library(biomod2)
 library(sp)
 library(raster)
@@ -16,455 +18,242 @@ library(patchwork)
 library(rnaturalearth)
 library(rnaturalearthdata)
 library(viridis)
-library(tibble)
-library(utils)
 
-# --- 1) Configurações e diretórios ---
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste59"
-if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 set.seed(42)
 
-cat("Output dir:", output_dir, "\n")
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/resultado_teste60"
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
-safe_saveRDS <- function(obj, path) {
-  tryCatch({
-    saveRDS(obj, path)
-    cat("✔ Saved:", path, "\n")
-  }, error = function(e) {
-    warning("Falha ao salvar ", path, ": ", e$message)
-  })
-}
+# -----------------------------
+# 1) Ocorrências
+# -----------------------------
+occ <- read.csv(
+  "C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All3.csv"
+)
 
-run_safe <- function(expr, checkpoint_file = NULL) {
-  tryCatch({
-    res <- eval(expr)
-    if (!is.null(checkpoint_file) && !is.logical(checkpoint_file)) safe_saveRDS(res, checkpoint_file)
-    return(res)
-  }, error = function(e) {
-    msg <- paste0("ERRO em etapa: ", conditionMessage(e))
-    cat(msg, "\n")
-    writeLines(msg, file.path(output_dir, "error_log.txt"), sep = "\n", useBytes = TRUE)
-    stop(e)
-  })
-}
-
-# ======================================================
-# 2) Dados de ocorrência
-# ======================================================
-cat("Carregando ocorrências...\n")
-occ_csv <- "C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All3.csv"
-occurence <- read.csv(occ_csv)
-
-coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
-coords <- coords[complete.cases(coords), , drop = FALSE]
+coords <- data.frame(
+  x = occ$longitude,
+  y = occ$latitude
+)
+coords <- coords[complete.cases(coords), ]
 
 resp.var <- rep(1, nrow(coords))
-sp <- SpatialPoints(coords, proj4string = CRS("+proj=longlat +datum=WGS84"))
 
-occ_data <- data.frame(species = rep("Vampyrum_spectrum", nrow(coords)), lon = coords$x, lat = coords$y)
-write.csv(occ_data, file.path(output_dir, "dados_ocorrencia.csv"), row.names = FALSE)
-cat("✓ Ocorrências salvas. N:", nrow(occ_data), "\n")
-
-# ======================================================
-# 3) Camadas ambientais (exemplo 4 variáveis)
-# ======================================================
-cat("Carregando camadas ambientais...\n")
+# -----------------------------
+# 2) Variáveis ambientais
+# -----------------------------
 vaporpressure <- raster("C:/Users/Administrador/Desktop/GAB/Mod/meanvaporpressure.tif")
-wind          <- raster("C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif")
-relevo        <- raster("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif")
-BIO7          <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
+wind  <- raster("C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif")
+relevo <- raster("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif")
+BIO7 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
 
-ext_america <- extent(-170, -26, -56, 72)
+ext <- extent(-170, -26, -56, 72)
 
-vaporpressure <- resample(crop(vaporpressure, ext_america), BIO7, method = "bilinear")
-wind          <- resample(crop(wind, ext_america), BIO7, method = "bilinear")
-relevo        <- resample(crop(relevo, ext_america), BIO7, method = "bilinear")
-BIO7          <- resample(crop(BIO7, ext_america), BIO7, method = "bilinear")
+vaporpressure <- resample(crop(vaporpressure, ext), BIO7)
+wind  <- resample(crop(wind, ext), BIO7)
+relevo <- resample(crop(relevo, ext), BIO7)
+BIO7 <- crop(BIO7, ext)
 
 relevo[relevo < 0] <- NA
 
-env_data4layers <- stack(vaporpressure, wind, relevo, BIO7)
-names(env_data4layers) <- c("Pressao_Vapor", "Vento", "Relevo", "Variacao_de_Temperatura")
-cat("Camadas carregadas:", paste(names(env_data4layers), collapse = ", "), "\n")
-
-# ======================================================
-# 4) Formatação BIOMOD2
-# ======================================================
-cat("Formatando dados para BIOMOD2...\n")
-bmdata_path <- file.path(output_dir, "biomod_data_4layers.rds")
-
-if (file.exists(bmdata_path)) {
-  biomod_data4layers <- readRDS(bmdata_path)
-  cat("✔ biomod_data4layers carregado do checkpoint.\n")
-} else {
-  biomod_data4layers <- run_safe(quote(
-    BIOMOD_FormatingData(
-      resp.var = resp.var,
-      expl.var = env_data4layers,
-      resp.xy = coords,
-      PA.nb.rep = 10,
-      PA.nb.absences = 600,
-      PA.strategy = "random",
-      PA.dist.min = 20000,
-      PA.dist.max = 150000,
-      filter.raster = TRUE,
-      resp.name = "Vampyrum.spectrum"
-    )
-  ), checkpoint_file = bmdata_path)
-}
-
-# ======================================================
-# 5) Model options
-# ======================================================
-myOptions <- BIOMOD_ModelingOptions(
-  RF = list(n.trees = 500, mtry = 2, nodesize = 20, maxnodes = 20),
-  GBM = list(n.trees = 2000, interaction.depth = 2, shrinkage = 0.005, bag.fraction = 0.5, n.minobsinnode = 10),
-  MAXENT = list(betamultiplier = 3, features = "lq"),
-  GLM = list(type = "simple", interaction.level = 0, test = "BIC"),
-  GAM = list(algo = "GAM_mgcv", type = "s_smoother", k = 3, interaction.level = 0)
+env <- stack(vaporpressure, wind, relevo, BIO7)
+names(env) <- c(
+  "Pressao_Vapor",
+  "Vento",
+  "Relevo",
+  "Variacao_Temperatura"
 )
 
-# ======================================================
-# 6) Modelagem
-# ======================================================
-models_path <- file.path(output_dir, "models_4layers.rds")
+# -----------------------------
+# 3) BIOMOD – formatação
+# -----------------------------
+biomod_data <- BIOMOD_FormatingData(
+  resp.var = resp.var,
+  expl.var = env,
+  resp.xy = coords,
+  PA.nb.rep = 10,
+  PA.nb.absences = 600,
+  PA.strategy = "random",
+  filter.raster = TRUE,
+  resp.name = "Vampyrum.spectrum"
+)
 
-if (file.exists(models_path)) {
-  models_4layers <- readRDS(models_path)
-  cat("✔ models_4layers carregado do checkpoint.\n")
-} else {
-  cat("Executando BIOMOD_Modeling...\n")
-  models_4layers <- BIOMOD_Modeling(
-    bm.format = biomod_data4layers,
-    modeling.id = "teste59",
-    models = c("GLM","GAM","GBM","RF","MAXENT"),
-    bm.options = myOptions,
-    CV.strategy = "block",
-    CV.nb.rep = 5,
-    prevalence = 0.5,
-    var.import = 3,
-    metric.eval = c("TSS","ROC")
-  )
-  saveRDS(models_4layers, models_path)
-  cat("✔ Modelagem finalizada e salva.\n")
-}
+# -----------------------------
+# 4) Modelagem
+# -----------------------------
+myOptions <- BIOMOD_ModelingOptions(
+  RF = list(n.trees = 500, mtry = 2, nodesize = 20, maxnodes = 20),
+  GBM = list(n.trees = 2000, interaction.depth = 2, shrinkage = 0.005,
+             bag.fraction = 0.5, n.minobsinnode = 10),
+  MAXENT = list(betamultiplier = 3, features = "lq"),
+  GLM = list(type = "simple", interaction.level = 0, test = "BIC"),
+  GAM = list(algo = "GAM_mgcv", type = "s_smoother", k = 3)
+)
 
-# ======================================================
-# 7) Projeção modelos individuais
-# ======================================================
-projections_path <- file.path(output_dir, "projections_4layers.rds")
+models_4layers <- BIOMOD_Modeling(
+  bm.format = biomod_data,
+  modeling.id = "FINAL",
+  models = c("GLM","GAM","GBM","RF","MAXENT"),
+  bm.options = myOptions,
+  CV.strategy = "block",
+  CV.nb.rep = 5,
+  prevalence = 0.5,
+  var.import = 3,
+  metric.eval = c("TSS","ROC")
+)
 
-if (file.exists(projections_path)) {
-  projections_4layers <- readRDS(projections_path)
-  cat("✔ projections_4layers carregado do checkpoint.\n")
-} else {
-  cat("Executando BIOMOD_Projection...\n")
-  projections_4layers <- BIOMOD_Projection(
-    bm.mod = models_4layers,
-    proj.name = "current_teste59",
-    new.env = env_data4layers,
-    models.chosen = "all"
-  )
-  saveRDS(projections_4layers, projections_path)
-}
+# -----------------------------
+# 5) Ensemble
+# -----------------------------
+ensemble_4layers <- BIOMOD_EnsembleModeling(
+  bm.mod = models_4layers,
+  models.chosen = "all",
+  em.by = "all",
+  em.algo = c("EMmean","EMci"),
+  metric.select = c("TSS","ROC"),
+  metric.select.thresh = c(0.5, 0.7),
+  var.import = 3,
+  seed.val = 42
+)
 
-# ======================================================
-# 8) Ensemble modeling
-# ======================================================
-ensemble_path <- file.path(output_dir, "ensemble_4layers.rds")
+# -----------------------------
+# 6) Projeção Ensemble
+# -----------------------------
+ensemble_proj <- BIOMOD_EnsembleForecasting(
+  bm.em = ensemble_4layers,
+  proj.name = "ensemble_current",
+  new.env = env,
+  binary.meth = c("TSS","ROC"),
+  compress = FALSE
+)
 
-if (file.exists(ensemble_path)) {
-  ensemble_4layers <- readRDS(ensemble_path)
-  cat("✔ ensemble_4layers carregado do checkpoint.\n")
-} else {
-  cat("Executando BIOMOD_EnsembleModeling...\n")
-  ensemble_4layers <- BIOMOD_EnsembleModeling(
-    bm.mod = models_4layers,
-    models.chosen = "all",
-    em.by = "all",
-    em.algo = c("EMmean","EMci"),
-    metric.select = c("TSS","ROC"),
-    metric.select.thresh = c(0.5, 0.7),
-    var.import = 3,
-    seed.val = 42
-  )
-  saveRDS(ensemble_4layers, ensemble_path)
-}
+ensemble_raster <- get_predictions(ensemble_proj)[[1]]
 
-ensemble_eval <- tryCatch({ get_evaluations(ensemble_4layers) }, error = function(e) NULL)
-if (!is.null(ensemble_eval)) {
-  write.csv(as.data.frame(ensemble_eval), file.path(output_dir, "ensemble_evaluations.csv"), row.names = FALSE)
-  cat("✔ Ensemble evaluations salvos.\n")
-}
+# -----------------------------
+# 7) IMPORTÂNCIA DAS VARIÁVEIS
+# -----------------------------
+imp_raw <- get_variables_importance(ensemble_4layers)
+imp_df <- as.data.frame(imp_raw)
 
-# ======================================================
-# 9) IMPORTÂNCIA no ensemble (mantive seu fluxo)
-# ======================================================
-EMvar_imp4 <- tryCatch({ get_variables_importance(ensemble_4layers) }, error = function(e) NULL)
-if (!is.null(EMvar_imp4)) {
-  EMvar_imp_df4 <- as.data.frame(EMvar_imp4, stringsAsFactors = FALSE)
-  EMimp_expl4 <- data.frame(expl_var = EMvar_imp_df4$expl.var, var_imp = as.numeric(EMvar_imp_df4$var.imp))
-  EMmean_imp_var4 <- aggregate(var_imp ~ expl_var, data = EMimp_expl4, FUN = mean)
-  EMmean_imp_var4 <- arrange(EMmean_imp_var4, desc(var_imp))
-  EMmean_imp_var4$expl_var <- names(env_data4layers)
-  write.csv(EMmean_imp_var4, file.path(output_dir, "ensemble_var_importance.csv"), row.names = FALSE)
-  importance_df <- data.frame(var = EMmean_imp_var4$expl_var, importance = EMmean_imp_var4$var_imp)
-} else {
-  importance_df <- data.frame(var = names(env_data4layers), importance = rep(NA, nlayers(env_data4layers)))
-}
+importance_df <- imp_df %>%
+  group_by(expl.var) %>%
+  summarise(importance = mean(var.imp, na.rm = TRUE)) %>%
+  rename(var = expl.var)
 
-# ======================================================
-# 10) Ensemble Forecasting (se você usar depois no painel)
-# ======================================================
-ensemble_proj_path <- file.path(output_dir, "ensemble_projection_4layers.rds")
-
-if (file.exists(ensemble_proj_path)) {
-  myBiomodEnsembleProj <- readRDS(ensemble_proj_path)
-  cat("✔ ensemble forecast carregado do checkpoint.\n")
-} else {
-  cat("Executando BIOMOD_EnsembleForecasting...\n")
-  myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
-    bm.em = ensemble_4layers,
-    proj.name = "ensemble_teste59",
-    models.chosen = "all",
-    new.env = env_data4layers,
-    binary.meth = c("TSS","ROC"),
-    compress = FALSE
-  )
-  saveRDS(myBiomodEnsembleProj, ensemble_proj_path)
-}
-
-# tenta obter raster do ensemble forecasting
-ensemble_raster_single <- NULL
-preds_ens <- tryCatch({ get_predictions(myBiomodEnsembleProj) }, error = function(e) NULL)
-if (!is.null(preds_ens)) {
-  # pode ser SpatRaster multilayer
-  ensemble_raster_single <- preds_ens[[1]]
-}
-
-# ======================================================
-# 11) EXTRAÇÃO + PLOTS (CORREÇÃO: incluir ENSEMBLE real)
-# ======================================================
-
-extract_biomod_evals <- function(eval_obj) {
-  # Caso array com dimnames (comum no BIOMOD2)
-  if (is.array(eval_obj) && !is.null(dimnames(eval_obj))) {
-    dn <- dimnames(eval_obj)
-    dims <- names(dn)
-    grid <- expand.grid(lapply(dn, as.character), stringsAsFactors = FALSE)
-    colnames(grid) <- dims
-    grid$Valor <- as.vector(eval_obj)
-    grid <- grid[is.finite(grid$Valor) & !is.na(grid$Valor), , drop = FALSE]
-
-    # padroniza nomes comuns
-    if (!"algo" %in% names(grid)) {
-      algo_col <- names(grid)[grepl("algo", names(grid), ignore.case = TRUE)]
-      if (length(algo_col) == 1) names(grid)[names(grid) == algo_col] <- "algo"
-    }
-    if (!"metric.eval" %in% names(grid)) {
-      met_col <- names(grid)[grepl("metric", names(grid), ignore.case = TRUE)]
-      if (length(met_col) == 1) names(grid)[names(grid) == met_col] <- "metric.eval"
-    }
-    if (!"data.set" %in% names(grid)) {
-      ds_col <- names(grid)[grepl("data.set|dataset|data_set", names(grid), ignore.case = TRUE)]
-      if (length(ds_col) == 1) names(grid)[names(grid) == ds_col] <- "data.set"
-    }
-    if (!"full.name" %in% names(grid)) {
-      fn_col <- names(grid)[grepl("full", names(grid), ignore.case = TRUE)]
-      if (length(fn_col) == 1) names(grid)[names(grid) == fn_col] <- "full.name"
-    }
-    return(grid)
+# -----------------------------
+# 8) EXTRAÇÃO DE MÉTRICAS
+# -----------------------------
+extract_eval <- function(x) {
+  if (is.array(x)) {
+    dn <- dimnames(x)
+    g <- expand.grid(lapply(dn, as.character), stringsAsFactors = FALSE)
+    names(g) <- names(dn)
+    g$Valor <- as.vector(x)
+    return(g[is.finite(g$Valor), ])
   }
-
-  # Caso já venha como data.frame
-  if (is.data.frame(eval_obj)) {
-    df <- eval_obj
-    if (!"Valor" %in% names(df)) {
-      if ("validation" %in% names(df)) df$Valor <- df$validation
-      else if ("value" %in% names(df)) df$Valor <- df$value
-      else stop("Data.frame de avaliações sem coluna de valor (validation/value).")
-    }
-    if (!"algo" %in% names(df)) {
-      algo_col <- names(df)[grepl("algo", names(df), ignore.case = TRUE)]
-      if (length(algo_col) == 1) names(df)[names(df) == algo_col] <- "algo"
-    }
-    if (!"metric.eval" %in% names(df)) {
-      met_col <- names(df)[grepl("metric", names(df), ignore.case = TRUE)]
-      if (length(met_col) == 1) names(df)[names(df) == met_col] <- "metric.eval"
-    }
-    if (!"data.set" %in% names(df)) {
-      ds_col <- names(df)[grepl("data.set|dataset|data_set", names(df), ignore.case = TRUE)]
-      if (length(ds_col) == 1) names(df)[names(df) == ds_col] <- "data.set"
-    }
-    if (!"full.name" %in% names(df)) {
-      fn_col <- names(df)[grepl("full", names(df), ignore.case = TRUE)]
-      if (length(fn_col) == 1) names(df)[names(df) == fn_col] <- "full.name"
-    }
-    df <- df[is.finite(df$Valor) & !is.na(df$Valor), , drop = FALSE]
-    return(df)
-  }
-
-  stop("Estrutura de get_evaluations() não reconhecida.")
+  stop("Formato não reconhecido")
 }
 
-# --- Modelos individuais (reais) ---
-eval_models_raw <- get_evaluations(models_4layers)
-df_models_raw <- extract_biomod_evals(eval_models_raw)
-
-df_models <- df_models_raw %>%
+# Modelos
+df_models <- extract_eval(get_evaluations(models_4layers)) %>%
   filter(metric.eval %in% c("TSS","ROC")) %>%
-  mutate(data.set = if ("data.set" %in% names(.)) as.character(data.set) else NA_character_) %>%
-  filter(is.na(data.set) | data.set %in% c("Testing.data","validation","Testing","Validation")) %>%
   transmute(
-    Modelo  = as.character(algo),
-    Metrica = as.character(metric.eval),
-    Valor   = as.numeric(Valor)
-  ) %>%
-  filter(is.finite(Valor), !is.na(Valor))
+    Modelo = algo,
+    Metrica = metric.eval,
+    Valor = as.numeric(Valor)
+  )
 
-# --- Ensemble (correção robusta: usa algo OU full.name; não depende de EMmean em 'algo') ---
-eval_ens_raw <- get_evaluations(ensemble_4layers)
-df_ens_raw <- extract_biomod_evals(eval_ens_raw)
-
-if (!"algo" %in% names(df_ens_raw)) df_ens_raw$algo <- NA_character_
-if (!"full.name" %in% names(df_ens_raw)) df_ens_raw$full.name <- NA_character_
-if (!"data.set" %in% names(df_ens_raw)) df_ens_raw$data.set <- NA_character_
-
-# DEBUG (útil para você ajustar filtros se necessário)
-cat("\n[DEBUG Ensemble] unique(metric.eval):\n"); print(unique(df_ens_raw$metric.eval))
-cat("\n[DEBUG Ensemble] unique(data.set):\n");   print(unique(df_ens_raw$data.set))
-cat("\n[DEBUG Ensemble] unique(algo):\n");       print(unique(df_ens_raw$algo))
-cat("\n[DEBUG Ensemble] unique(full.name) (primeiros 20):\n"); print(head(unique(df_ens_raw$full.name), 20))
-
-df_ens_tmp <- df_ens_raw %>%
+# Ensemble (valor único)
+df_ens <- extract_eval(get_evaluations(ensemble_4layers)) %>%
   filter(metric.eval %in% c("TSS","ROC")) %>%
-  mutate(
-    data.set = as.character(data.set),
-    algo_txt = coalesce(as.character(algo), ""),
-    full_txt = coalesce(as.character(full.name), ""),
-    ens_tag = case_when(
-      grepl("EMmean", algo_txt, ignore.case = TRUE) ~ "EMmean",
-      grepl("EMmean", full_txt, ignore.case = TRUE) ~ "EMmean",
-      grepl("EMwmean", algo_txt, ignore.case = TRUE) ~ "EMwmean",
-      grepl("EMwmean", full_txt, ignore.case = TRUE) ~ "EMwmean",
-      grepl("EMci", algo_txt, ignore.case = TRUE) ~ "EMci",
-      grepl("EMci", full_txt, ignore.case = TRUE) ~ "EMci",
-      TRUE ~ NA_character_
-    )
+  transmute(
+    Metrica = metric.eval,
+    Valor = as.numeric(Valor)
   ) %>%
-  filter(is.na(data.set) | data.set %in% c("Testing.data","validation","Testing","Validation"))
+  group_by(Metrica) %>%
+  summarise(Valor = mean(Valor, na.rm = TRUE), .groups = "drop")
 
-# Seleção preferencial: EMmean; se não tiver, pega primeiro ensemble identificado; se nada identificado, inclui como Ensemble genérico
-if (all(is.na(df_ens_tmp$ens_tag))) {
-  warning("Não encontrei EMmean/EMci em algo/full.name; incluindo Ensemble sem tag (valores reais).")
-  df_ens <- df_ens_tmp %>%
-    transmute(
-      Modelo  = "Ensemble",
-      Metrica = as.character(metric.eval),
-      Valor   = as.numeric(Valor)
-    ) %>%
-    filter(is.finite(Valor), !is.na(Valor))
-} else {
-  if (any(df_ens_tmp$ens_tag == "EMmean", na.rm = TRUE)) {
-    df_ens <- df_ens_tmp %>%
-      filter(ens_tag == "EMmean") %>%
-      transmute(
-        Modelo  = "Ensemble",
-        Metrica = as.character(metric.eval),
-        Valor   = as.numeric(Valor)
-      ) %>%
-      filter(is.finite(Valor), !is.na(Valor))
-  } else {
-    first_tag <- df_ens_tmp$ens_tag[which(!is.na(df_ens_tmp$ens_tag))[1]]
-    warning("EMmean não encontrado; usando ensemble: ", first_tag)
-    df_ens <- df_ens_tmp %>%
-      filter(ens_tag == first_tag) %>%
-      transmute(
-        Modelo  = "Ensemble",
-        Metrica = as.character(metric.eval),
-        Valor   = as.numeric(Valor)
-      ) %>%
-      filter(is.finite(Valor), !is.na(Valor))
-  }
-}
+# -----------------------------
+# 9) GRÁFICOS DE AVALIAÇÃO
+# -----------------------------
+df_models$Modelo <- factor(
+  df_models$Modelo,
+  levels = c("GLM","GAM","GBM","RF","MAXENT")
+)
 
-df_all <- bind_rows(df_models, df_ens)
-
-if (!any(df_all$Modelo == "Ensemble")) {
-  stop("Mesmo após correções, não há valores de Ensemble (TSS/ROC). Verifique BIOMOD_EnsembleModeling.")
-}
-
-write.csv(df_all, file.path(output_dir, "avaliacoes_modelos_e_ensemble_REAL.csv"), row.names = FALSE)
-
-cat("\nResumo (média) por Modelo/Métrica:\n")
-print(df_all %>% group_by(Modelo, Metrica) %>% summarise(media = mean(Valor), n=n(), .groups="drop"))
-
-# --- PLOTS TSS/ROC (incluindo Ensemble) ---
-ordered_levels <- c("Ensemble","GLM","GAM","GBM","RF","MAXENT")
-df_all$Modelo <- factor(as.character(df_all$Modelo), levels = ordered_levels)
-
-df_tss <- df_all %>% filter(Metrica == "TSS") %>% mutate(Valor = pmax(0, pmin(1, Valor)))
-df_roc <- df_all %>% filter(Metrica == "ROC") %>% mutate(Valor = pmax(0, pmin(1, Valor)))
-
-tss_violin <- ggplot(df_tss, aes(x = Modelo, y = Valor, fill = Modelo)) +
-  geom_violin(alpha = 0.35, trim = TRUE, width = 0.8, color = NA) +
-  geom_boxplot(width = 0.45, alpha = 0.9, outlier.size = 1.3, outlier.color = "red") +
-  geom_jitter(width = 0.12, alpha = 0.6, color = "darkgray", size = 1) +
-  stat_summary(fun = mean, geom = "point", shape = 18, size = 3, color = "black") +
-  stat_summary(fun = mean, geom = "text", aes(label = sprintf("μ:%.3f", ..y..)), vjust = -2, size = 3, color = "black") +
+# TSS
+tss_plot <- ggplot(df_models %>% filter(Metrica == "TSS"),
+                   aes(Modelo, Valor, fill = Modelo)) +
+  geom_violin(alpha = 0.35, color = NA) +
+  geom_boxplot(width = 0.35) +
+  geom_jitter(width = 0.12, size = 1, alpha = 0.6) +
   geom_hline(yintercept = 0.7, linetype = "dashed", color = "red") +
-  scale_fill_viridis_d(option = "C", alpha = 0.7) +
-  theme_minimal() + ylim(0,1) +
-  labs(title = "Confiabilidade dos Modelos - TSS (inclui Ensemble)", y = "TSS", x = "Modelo") +
-  theme(legend.position = "none", plot.title = element_text(hjust = 0.5, face = "bold"))
+  geom_hline(
+    data = df_ens %>% filter(Metrica == "TSS"),
+    aes(yintercept = Valor),
+    color = "blue",
+    linewidth = 1.2
+  ) +
+  theme_minimal() +
+  ylim(0,1) +
+  labs(title = "TSS – Modelos Individuais (Ensemble como referência)")
 
-roc_violin <- ggplot(df_roc, aes(x = Modelo, y = Valor, fill = Modelo)) +
-  geom_violin(alpha = 0.35, trim = TRUE, width = 0.8, color = NA) +
-  geom_boxplot(width = 0.45, alpha = 0.9, outlier.size = 1.3, outlier.color = "red") +
-  geom_jitter(width = 0.12, alpha = 0.6, color = "darkgray", size = 1) +
-  stat_summary(fun = mean, geom = "point", shape = 18, size = 3, color = "black") +
-  stat_summary(fun = mean, geom = "text", aes(label = sprintf("μ:%.3f", ..y..)), vjust = -2, size = 3, color = "black") +
+# ROC
+roc_plot <- ggplot(df_models %>% filter(Metrica == "ROC"),
+                   aes(Modelo, Valor, fill = Modelo)) +
+  geom_violin(alpha = 0.35, color = NA) +
+  geom_boxplot(width = 0.35) +
+  geom_jitter(width = 0.12, size = 1, alpha = 0.6) +
   geom_hline(yintercept = 0.8, linetype = "dashed", color = "red") +
-  scale_fill_viridis_d(option = "C", alpha = 0.7) +
-  theme_minimal() + ylim(0,1) +
-  labs(title = "Confiabilidade dos Modelos - ROC (inclui Ensemble)", y = "ROC (AUC)", x = "Modelo") +
-  theme(legend.position = "none", plot.title = element_text(hjust = 0.5, face = "bold"))
+  geom_hline(
+    data = df_ens %>% filter(Metrica == "ROC"),
+    aes(yintercept = Valor),
+    color = "blue",
+    linewidth = 1.2
+  ) +
+  theme_minimal() +
+  ylim(0,1) +
+  labs(title = "ROC – Modelos Individuais (Ensemble como referência)")
 
-eval_plot <- tss_violin / roc_violin + plot_annotation(title = "Avaliação (TSS e ROC) - Modelos + Ensemble (valores reais)")
-ggsave(file.path(output_dir, "03A_Confiabilidade_Modelos_Com_Ensemble_REAL.png"), eval_plot, width = 14, height = 10, dpi = 300)
-cat("✔ Plots com Ensemble (reais) salvos.\n")
+evaluation_panel <- tss_plot | roc_plot
 
-# ======================================================
-# 12) Painel final (mantive seu padrão)
-# ======================================================
+# -----------------------------
+# 10) PAINEL FINAL
+# -----------------------------
 countries <- ne_countries(scale = "medium", returnclass = "sf")
-pres_coords <- data.frame(lon = coords$x, lat = coords$y)
 
-if (!is.null(ensemble_raster_single)) {
-  suitability_map <- ggplot() +
-    geom_spatraster(data = ensemble_raster_single) +
-    geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.2) +
-    geom_point(data = pres_coords, aes(x = lon, y = lat), color = "red", size = 1, alpha = 0.6) +
-    scale_fill_viridis_c(option = "plasma", name = "Adequabilidade") +
-    coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
-    theme_minimal() +
-    labs(title = "Mapa de Adequabilidade do Habitat - Ensemble") +
-    theme(plot.title = element_text(hjust = 0.5, face = "bold"))
-} else {
-  suitability_map <- ggplot() + theme_void() + labs(title = "Mapa de Adequabilidade - (não disponível)")
-}
+map_plot <- ggplot() +
+  geom_spatraster(data = ensemble_raster) +
+  geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.2) +
+  geom_point(data = coords, aes(x = x, y = y),
+             color = "red", size = 1) +
+  scale_fill_viridis_c(option = "plasma") +
+  coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
+  theme_minimal() +
+  labs(title = "Mapa de Adequabilidade – Ensemble")
 
-importance_plot <- ggplot(importance_df, aes(x = reorder(var, importance), y = importance, fill = var)) +
-  geom_col() +
-  geom_text(aes(label = sprintf("%.3f", importance)), hjust = -0.1, size = 3) +
-  coord_flip() + theme_minimal() +
-  labs(title = "Importância das Variáveis (Ensemble)", x = "", y = "Importância") +
-  theme(legend.position = "none")
+importance_plot <- ggplot(
+  importance_df,
+  aes(x = reorder(var, importance), y = importance)
+) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Importância das Variáveis")
 
-final_panel <- (suitability_map | importance_plot) / (tss_violin | roc_violin) +
-  plot_annotation(title = "RELATÓRIO - MODELAGEM (com avaliação real + Ensemble)")
+final_panel <- (map_plot | importance_plot) /
+               evaluation_panel +
+  plot_annotation(
+    title = "Modelagem de Nicho Ecológico – Vampyrum spectrum",
+    theme = theme(plot.title = element_text(face = "bold"))
+  )
 
-ggsave(file.path(output_dir, "04_Painel_Final_Com_Ensemble_REAL.png"), final_panel, width = 22, height = 16, dpi = 300)
-cat("✔ Painel final salvo.\n")
+ggsave(
+  file.path(output_dir, "PAINEL_FINAL_ENSEMBLE_LINHA.png"),
+  final_panel,
+  width = 20,
+  height = 16,
+  dpi = 300
+)
 
-cat("Script finalizado. Arquivos salvos em:", output_dir, "\n")
+cat("✔ Script finalizado com Ensemble como linha de referência.\n")
