@@ -1,6 +1,6 @@
 # ======================================================
 # MODELAGEM DE NICHO ECOLÓGICO – Vampyrum spectrum
-# Ensemble como linha de referência
+# Script FINAL COMPLETO
 # ======================================================
 
 # -----------------------------
@@ -21,80 +21,54 @@ library(viridis)
 
 set.seed(42)
 
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/resultado_teste60"
+# -----------------------------
+# 1) Diretório
+# -----------------------------
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste61"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
-# -----------------------------
-# 1) Ocorrências
-# -----------------------------
+# ======================================================
+# 2) Ocorrências
+# ======================================================
 occ <- read.csv(
   "C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All3.csv"
 )
 
-coords <- data.frame(
-  x = occ$longitude,
-  y = occ$latitude
-)
-coords <- coords[complete.cases(coords), ]
+coords <- occ %>%
+  dplyr::select(longitude, latitude) %>%
+  rename(x = longitude, y = latitude) %>%
+  filter(complete.cases(.))
 
 resp.var <- rep(1, nrow(coords))
+cat("Ocorrências:", nrow(coords), "\n")
 
-# -----------------------------
-# 2) Variáveis ambientais
-# -----------------------------
-vaporpressure <- raster("C:/Users/Administrador/Desktop/GAB/Mod/meanvaporpressure.tif")
-wind  <- raster("C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif")
-relevo <- raster("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif")
-BIO7 <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
+# ======================================================
+# 3) Camadas ambientais (PADRONIZAÇÃO)
+# ======================================================
+ext_america <- extent(-170, -26, -56, 72)
 
-# ---------------------------------
-# Padronização espacial das camadas
-# ---------------------------------
-
-# Raster de referência
-ref <- raster("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
-
-# Extensão de trabalho
-ext <- extent(-170, -26, -56, 72)
-
-# Função de alinhamento seguro
-prep_layer <- function(r, ref, ext) {
-  r <- crop(r, ext)
-  r <- resample(r, ref, method = "bilinear")
+prep_layer <- function(path, ref = NULL) {
+  r <- raster(path)
+  r <- crop(r, ext_america)
+  if (!is.null(ref)) {
+    r <- resample(r, ref, method = "bilinear")
+  }
   return(r)
 }
 
-# Aplicar a TODAS as camadas (inclusive BIO7)
-BIO7_ref <- prep_layer(ref, ref, ext)
-vaporpressure_ref <- prep_layer(vaporpressure, ref, ext)
-wind_ref <- prep_layer(wind, ref, ext)
-relevo_ref <- prep_layer(relevo, ref, ext)
+BIO7 <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
+vapor <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/meanvaporpressure.tif", BIO7)
+wind  <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif", BIO7)
+relevo<- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif", BIO7)
 
-# Remover relevo marinho
-relevo_ref[relevo_ref < 0] <- NA
+relevo[relevo < 0] <- NA
 
-# Stack final (agora funciona)
-env <- stack(
-  vaporpressure_ref,
-  wind_ref,
-  relevo_ref,
-  BIO7_ref
-)
+env <- stack(vapor, wind, relevo, BIO7)
+names(env) <- c("Pressao_Vapor","Vento","Relevo","Variacao_Temperatura")
 
-names(env) <- c(
-  "Pressao_Vapor",
-  "Vento",
-  "Relevo",
-  "Variacao_Temperatura"
-)
-
-# Checagem (opcional, mas recomendada)
-print(compareRaster(env, extent = TRUE, rowcol = TRUE,
-                    crs = TRUE, res = TRUE, rotation = TRUE,
-                    stopiffalse = FALSE))
-# -----------------------------
-# 3) BIOMOD – formatação
-# -----------------------------
+# ======================================================
+# 4) BIOMOD_FormatingData
+# ======================================================
 biomod_data <- BIOMOD_FormatingData(
   resp.var = resp.var,
   expl.var = env,
@@ -102,186 +76,166 @@ biomod_data <- BIOMOD_FormatingData(
   PA.nb.rep = 10,
   PA.nb.absences = 600,
   PA.strategy = "random",
+  PA.dist.min = 20000,
+  PA.dist.max = 150000,
   filter.raster = TRUE,
   resp.name = "Vampyrum.spectrum"
 )
 
-# -----------------------------
-# 4) Modelagem
-# -----------------------------
+# ======================================================
+# 5) Modelagem
+# ======================================================
 myOptions <- BIOMOD_ModelingOptions(
-  RF = list(n.trees = 500, mtry = 2, nodesize = 20, maxnodes = 20),
+  RF  = list(n.trees = 500, mtry = 2, nodesize = 20, maxnodes = 20),
   GBM = list(n.trees = 2000, interaction.depth = 2, shrinkage = 0.005,
              bag.fraction = 0.5, n.minobsinnode = 10),
   MAXENT = list(betamultiplier = 3, features = "lq"),
-  GLM = list(type = "simple", interaction.level = 0, test = "BIC"),
-  GAM = list(algo = "GAM_mgcv", type = "s_smoother", k = 3)
+  GLM = list(type = "simple", test = "BIC"),
+  GAM = list(k = 3)
 )
 
-models_4layers <- BIOMOD_Modeling(
-  bm.format = biomod_data,
-  modeling.id = "FINAL",
+models <- BIOMOD_Modeling(
+  biomod_data,
   models = c("GLM","GAM","GBM","RF","MAXENT"),
   bm.options = myOptions,
   CV.strategy = "block",
   CV.nb.rep = 5,
   prevalence = 0.5,
-  var.import = 3,
-  metric.eval = c("TSS","ROC")
+  metric.eval = c("TSS","ROC"),
+  var.import = 3
 )
 
-# -----------------------------
-# 5) Ensemble
-# -----------------------------
-ensemble_4layers <- BIOMOD_EnsembleModeling(
-  bm.mod = models_4layers,
+# ======================================================
+# 6) Ensemble
+# ======================================================
+ensemble <- BIOMOD_EnsembleModeling(
+  bm.mod = models,
   models.chosen = "all",
   em.by = "all",
-  em.algo = c("EMmean","EMci"),
+  em.algo = c("EMmean"),
   metric.select = c("TSS","ROC"),
   metric.select.thresh = c(0.5, 0.7),
-  var.import = 3,
-  seed.val = 42
+  var.import = 3
 )
 
-# -----------------------------
-# 6) Projeção Ensemble
-# -----------------------------
+# ======================================================
+# 7) Ensemble Forecasting
+# ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
-  bm.em = ensemble_4layers,
-  proj.name = "ensemble_current",
-  new.env = env,
-  binary.meth = c("TSS","ROC"),
-  compress = FALSE
+  bm.em = ensemble,
+  proj.name = "current",
+  new.env = env
 )
 
-ensemble_raster <- get_predictions(ensemble_proj)[[1]]
+ensemble_raster <- terra::rast(get_predictions(ensemble_proj))[[1]]
 
-# -----------------------------
-# 7) IMPORTÂNCIA DAS VARIÁVEIS
-# -----------------------------
-imp_raw <- get_variables_importance(ensemble_4layers)
-imp_df <- as.data.frame(imp_raw)
+# ======================================================
+# 8) Avaliações
+# ======================================================
+ev_models <- get_evaluations(models)
+ev_ens <- get_evaluations(ensemble)
 
-importance_df <- imp_df %>%
+df_models <- ev_models %>%
+  filter(metric.eval %in% c("TSS","ROC")) %>%
+  transmute(Modelo = algo, Metrica = metric.eval, Valor = validation) %>%
+  filter(is.finite(Valor))
+
+df_ens <- ev_ens %>%
+  filter(algo == "EMmean", metric.eval %in% c("TSS","ROC")) %>%
+  transmute(Metrica = metric.eval, Valor = calibration)
+
+ens_tss <- df_ens %>% filter(Metrica=="TSS") %>% pull(Valor)
+ens_roc <- df_ens %>% filter(Metrica=="ROC") %>% pull(Valor)
+
+# ======================================================
+# 9) IMPORTÂNCIA DAS VARIÁVEIS
+# ======================================================
+importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   group_by(expl.var) %>%
-  summarise(importance = mean(var.imp, na.rm = TRUE)) %>%
+  summarise(importance = mean(var.imp, na.rm=TRUE)) %>%
   rename(var = expl.var)
 
-# -----------------------------
-# 8) EXTRAÇÃO DE MÉTRICAS
-# -----------------------------
-extract_eval <- function(x) {
-  if (is.array(x)) {
-    dn <- dimnames(x)
-    g <- expand.grid(lapply(dn, as.character), stringsAsFactors = FALSE)
-    names(g) <- names(dn)
-    g$Valor <- as.vector(x)
-    return(g[is.finite(g$Valor), ])
-  }
-  stop("Formato não reconhecido")
+# ======================================================
+# 10) PAINEL POR VARIÁVEL (MAPA + BOX Presença x PA)
+# ======================================================
+pa_pts <- biomod_data@coord[bm_PseudoAbsences(biomod_data)[[1]], ]
+
+make_var_panel <- function(r, varname) {
+
+  pres_vals <- terra::extract(r, coords)[,2]
+  pa_vals   <- terra::extract(r, pa_pts)[,2]
+
+  df <- data.frame(
+    Valor = c(pres_vals, pa_vals),
+    Grupo = c(rep("Presença", length(pres_vals)),
+              rep("Pseudo-ausência", length(pa_vals)))
+  )
+
+  map <- ggplot() +
+    geom_spatraster(data = r) +
+    scale_fill_viridis_c() +
+    labs(title = varname) +
+    theme_minimal()
+
+  box <- ggplot(df, aes(Grupo, Valor, fill = Grupo)) +
+    geom_boxplot(alpha = 0.7) +
+    theme_minimal()
+
+  map | box
 }
 
-# Modelos
-df_models <- extract_eval(get_evaluations(models_4layers)) %>%
-  filter(metric.eval %in% c("TSS","ROC")) %>%
-  transmute(
-    Modelo = algo,
-    Metrica = metric.eval,
-    Valor = as.numeric(Valor)
-  )
+var_panels <- lapply(names(env), function(v) {
+  make_var_panel(env[[v]], v)
+})
 
-# Ensemble (valor único)
-df_ens <- extract_eval(get_evaluations(ensemble_4layers)) %>%
-  filter(metric.eval %in% c("TSS","ROC")) %>%
-  transmute(
-    Metrica = metric.eval,
-    Valor = as.numeric(Valor)
-  ) %>%
-  group_by(Metrica) %>%
-  summarise(Valor = mean(Valor, na.rm = TRUE), .groups = "drop")
+vars_panel <- wrap_plots(var_panels, ncol = 2)
 
-# -----------------------------
-# 9) GRÁFICOS DE AVALIAÇÃO
-# -----------------------------
-df_models$Modelo <- factor(
-  df_models$Modelo,
-  levels = c("GLM","GAM","GBM","RF","MAXENT")
-)
+# ======================================================
+# 11) GRÁFICOS TSS / ROC
+# ======================================================
+plot_metric <- function(metric, lim, ens_val) {
+  ggplot(df_models %>% filter(Metrica==metric),
+         aes(Modelo, Valor, fill=Modelo)) +
+    geom_violin(alpha=0.4) +
+    geom_boxplot(width=0.3) +
+    geom_hline(yintercept = lim, linetype="dashed", color="red") +
+    geom_hline(yintercept = ens_val, color="blue") +
+    theme_minimal() +
+    ylim(0,1)
+}
 
-# TSS
-tss_plot <- ggplot(df_models %>% filter(Metrica == "TSS"),
-                   aes(Modelo, Valor, fill = Modelo)) +
-  geom_violin(alpha = 0.35, color = NA) +
-  geom_boxplot(width = 0.35) +
-  geom_jitter(width = 0.12, size = 1, alpha = 0.6) +
-  geom_hline(yintercept = 0.7, linetype = "dashed", color = "red") +
-  geom_hline(
-    data = df_ens %>% filter(Metrica == "TSS"),
-    aes(yintercept = Valor),
-    color = "blue",
-    linewidth = 1.2
-  ) +
-  theme_minimal() +
-  ylim(0,1) +
-  labs(title = "TSS – Modelos Individuais (Ensemble como referência)")
+tss_plot <- plot_metric("TSS", 0.7, ens_tss)
+roc_plot <- plot_metric("ROC", 0.8, ens_roc)
 
-# ROC
-roc_plot <- ggplot(df_models %>% filter(Metrica == "ROC"),
-                   aes(Modelo, Valor, fill = Modelo)) +
-  geom_violin(alpha = 0.35, color = NA) +
-  geom_boxplot(width = 0.35) +
-  geom_jitter(width = 0.12, size = 1, alpha = 0.6) +
-  geom_hline(yintercept = 0.8, linetype = "dashed", color = "red") +
-  geom_hline(
-    data = df_ens %>% filter(Metrica == "ROC"),
-    aes(yintercept = Valor),
-    color = "blue",
-    linewidth = 1.2
-  ) +
-  theme_minimal() +
-  ylim(0,1) +
-  labs(title = "ROC – Modelos Individuais (Ensemble como referência)")
+eval_panel <- tss_plot | roc_plot
 
-evaluation_panel <- tss_plot | roc_plot
+# ======================================================
+# 12) PAINEL FINAL
+# ======================================================
+countries <- ne_countries(scale="medium", returnclass="sf")
 
-# -----------------------------
-# 10) PAINEL FINAL
-# -----------------------------
-countries <- ne_countries(scale = "medium", returnclass = "sf")
-
-map_plot <- ggplot() +
+map_ensemble <- ggplot() +
   geom_spatraster(data = ensemble_raster) +
-  geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.2) +
-  geom_point(data = coords, aes(x = x, y = y),
-             color = "red", size = 1) +
-  scale_fill_viridis_c(option = "plasma") +
-  coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
+  geom_sf(data = countries, fill=NA) +
+  geom_point(data=coords, aes(x,y), color="red", size=1) +
+  scale_fill_viridis_c() +
   theme_minimal() +
-  labs(title = "Mapa de Adequabilidade – Ensemble")
+  labs(title="Mapa de Adequabilidade – Ensemble")
 
-importance_plot <- ggplot(
-  importance_df,
-  aes(x = reorder(var, importance), y = importance)
-) +
-  geom_col(fill = "steelblue") +
+imp_plot <- ggplot(importance,
+                   aes(reorder(var,importance), importance)) +
+  geom_col() +
   coord_flip() +
   theme_minimal() +
-  labs(title = "Importância das Variáveis")
+  labs(title="Importância das Variáveis")
 
-final_panel <- (map_plot | importance_plot) /
-               evaluation_panel +
-  plot_annotation(
-    title = "Modelagem de Nicho Ecológico – Vampyrum spectrum",
-    theme = theme(plot.title = element_text(face = "bold"))
-  )
+final_panel <- (map_ensemble | imp_plot) /
+               vars_panel /
+               eval_panel
 
 ggsave(
-  file.path(output_dir, "PAINEL_FINAL_ENSEMBLE_LINHA.png"),
-  final_panel,
-  width = 20,
-  height = 16,
-  dpi = 300
+  file.path(output_dir, "PAINEL_FINAL_COMPLETO.png"),
+  final_panel, width=22, height=24, dpi=300
 )
 
-cat("✔ Script finalizado com Ensemble como linha de referência.\n")
+cat("SCRIPT FINAL EXECUTADO COM SUCESSO\n")
