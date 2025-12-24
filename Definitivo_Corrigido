@@ -24,7 +24,7 @@ set.seed(42)
 # -----------------------------
 # 1) Diretório
 # -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_FINAL_COMPLETO"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste62"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Output:", output_dir, "\n")
 
