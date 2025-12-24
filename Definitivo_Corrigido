@@ -156,37 +156,79 @@ importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   rename(var = expl.var)
 
 # ======================================================
-# 10) PAINEL POR VARIÁVEL (MAPA + BOX Presença x PA)
-# TALVEZ AQUI DÊ ERRO, AÍ USA A PARTIR DE PAINEL COMPLETO MAIS ABAIXO
 # ======================================================
-pa_pts <- biomod_data@coord[bm_PseudoAbsences(biomod_data)[[1]], ]
+# 10) PAINEL POR VARIÁVEL (MAPA + BOX Presença x PA)
+# ======================================================
 
-make_var_panel <- function(r, varname) {
+# ---- 10.1) Extrair PA REAL (sem bm_PseudoAbsences) ----
+# Pega a repetição PA1 (você pode trocar rep_id)
+rep_id <- 1
+pa_colname <- paste0("PA", rep_id)
 
-  pres_vals <- terra::extract(r, coords)[,2]
-  pa_vals   <- terra::extract(r, pa_pts)[,2]
+if (!("PA.table" %in% slotNames(biomod_data))) {
+  stop("biomod_data não tem slot PA.table. Confirme que BIOMOD_FormatingData foi rodado com PA.nb.rep > 0.")
+}
+
+pa_tab <- biomod_data@PA.table
+if (is.null(pa_tab) || nrow(pa_tab) == 0) stop("PA.table está vazio.")
+
+# escolher a coluna certa (PA1, PA2...); se não existir, usa a primeira
+if (!is.null(colnames(pa_tab)) && (pa_colname %in% colnames(pa_tab))) {
+  pa_vec <- pa_tab[, pa_colname]
+} else {
+  pa_vec <- pa_tab[, 1]
+  warning("Coluna ", pa_colname, " não encontrada em PA.table. Usando a primeira coluna.")
+}
+
+# pseudo-ausência é 0 (presença costuma ser 1)
+abs_idx <- which(is.finite(pa_vec) & pa_vec == 0)
+
+if (length(abs_idx) == 0) {
+  stop("Não encontrei pseudo-ausências (valor 0) na PA.table. Verifique a estratégia/geração de PA.")
+}
+
+# coordenadas das pseudo-ausências
+pa_pts <- biomod_data@coord[abs_idx, , drop = FALSE]
+pa_pts <- as.data.frame(pa_pts)
+colnames(pa_pts) <- c("x","y")
+
+cat("✓ PAs (rep", rep_id, "):", nrow(pa_pts), "\n")
+
+# ---- 10.2) Função do painel por variável ----
+make_var_panel <- function(r, varname, coords_df, pa_df, imp_df) {
+
+  # importância no título (opcional)
+  imp_val <- imp_df %>% filter(var == varname) %>% pull(importance)
+  imp_txt <- ifelse(length(imp_val) > 0, sprintf(" | Imp: %.3f", imp_val[1]), " | Imp: NA")
+
+  pres_vals <- terra::extract(terra::rast(r), coords_df[, c("x","y")])[,2]
+  pa_vals   <- terra::extract(terra::rast(r), pa_df[, c("x","y")])[,2]
 
   df <- data.frame(
     Valor = c(pres_vals, pa_vals),
     Grupo = c(rep("Presença", length(pres_vals)),
               rep("Pseudo-ausência", length(pa_vals)))
-  )
+  ) %>% filter(is.finite(Valor), !is.na(Valor))
 
   map <- ggplot() +
-    geom_spatraster(data = r) +
+    geom_spatraster(data = terra::rast(r)) +
     scale_fill_viridis_c() +
-    labs(title = varname) +
+    labs(title = paste0(varname, imp_txt)) +
     theme_minimal()
 
   box <- ggplot(df, aes(Grupo, Valor, fill = Grupo)) +
-    geom_boxplot(alpha = 0.7) +
-    theme_minimal()
+    geom_violin(alpha = 0.35, trim = TRUE, color = NA) +
+    geom_boxplot(width = 0.25, outlier.size = 1) +
+    geom_jitter(width = 0.12, size = 0.6, alpha = 0.5) +
+    theme_minimal() +
+    theme(legend.position = "none")
 
   map | box
 }
 
+# ---- 10.3) Construir painéis ----
 var_panels <- lapply(names(env), function(v) {
-  make_var_panel(env[[v]], v)
+  make_var_panel(env[[v]], v, coords, pa_pts, importance)
 })
 
 vars_panel <- wrap_plots(var_panels, ncol = 2)
