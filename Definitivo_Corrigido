@@ -157,6 +157,7 @@ importance <- as.data.frame(get_variables_importance(ensemble)) %>%
 
 # ======================================================
 # 10) PAINEL POR VARIÁVEL (MAPA + BOX Presença x PA)
+# TALVEZ AQUI DÊ ERRO, AÍ USA A PARTIR DE PAINEL COMPLETO MAIS ABAIXO
 # ======================================================
 pa_pts <- biomod_data@coord[bm_PseudoAbsences(biomod_data)[[1]], ]
 
