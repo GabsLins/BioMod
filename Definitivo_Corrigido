@@ -1,6 +1,6 @@
 # ======================================================
-# MODELAGEM DE NICHO ECOLÓGICO – Vampyrum spectrum
-# Script FINAL COMPLETO
+# Vampyrum spectrum – Modelos + Ensemble + Painel FINAL
+# (SCRIPT LIMPO / TESTE64)
 # ======================================================
 
 # -----------------------------
@@ -12,7 +12,6 @@ library(raster)
 library(terra)
 library(dplyr)
 library(ggplot2)
-library(tidyterra)
 library(sf)
 library(patchwork)
 library(rnaturalearth)
@@ -22,52 +21,63 @@ library(viridis)
 set.seed(42)
 
 # -----------------------------
-# 1) Diretório
+# 1) Diretório (TESTE64)
 # -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste63"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste64_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+cat("Output:", output_dir, "\n")
 
 # ======================================================
 # 2) Ocorrências
 # ======================================================
-occ <- read.csv(
-  "C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All3.csv"
-)
+occ_csv <- "C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All3.csv"
+occ <- read.csv(occ_csv)
 
 coords <- occ %>%
   dplyr::select(longitude, latitude) %>%
-  rename(x = longitude, y = latitude) %>%
-  filter(complete.cases(.))
+  dplyr::rename(x = longitude, y = latitude) %>%
+  dplyr::filter(is.finite(x), is.finite(y))
 
 resp.var <- rep(1, nrow(coords))
 cat("Ocorrências:", nrow(coords), "\n")
 
+write.csv(
+  data.frame(species="Vampyrum_spectrum", lon=coords$x, lat=coords$y),
+  file.path(output_dir, "dados_ocorrencia_teste64.csv"),
+  row.names = FALSE
+)
+
 # ======================================================
 # 3) Camadas ambientais (PADRONIZAÇÃO)
 # ======================================================
-ext_america <- extent(-170, -26, -56, 72)
+ext_america <- raster::extent(-170, -26, -56, 72)
 
 prep_layer <- function(path, ref = NULL) {
-  r <- raster(path)
-  r <- crop(r, ext_america)
-  if (!is.null(ref)) {
-    r <- resample(r, ref, method = "bilinear")
-  }
-  return(r)
+  r <- raster::raster(path)
+  r <- raster::crop(r, ext_america)
+  if (!is.null(ref)) r <- raster::resample(r, ref, method = "bilinear")
+  r
 }
 
-BIO7 <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
+BIO7  <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
 vapor <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/meanvaporpressure.tif", BIO7)
 wind  <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif", BIO7)
 relevo<- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif", BIO7)
 
 relevo[relevo < 0] <- NA
 
-env <- stack(vapor, wind, relevo, BIO7)
+env <- raster::stack(vapor, wind, relevo, BIO7)
 names(env) <- c("Pressao_Vapor","Vento","Relevo","Variacao_Temperatura")
+cat("Layers:", paste(names(env), collapse = ", "), "\n")
+
+# checkpoints das layers
+raster::writeRaster(vapor, file.path(output_dir, "Pressao_Vapor.tif"), overwrite = TRUE)
+raster::writeRaster(wind,  file.path(output_dir, "Vento.tif"), overwrite = TRUE)
+raster::writeRaster(relevo,file.path(output_dir, "Relevo.tif"), overwrite = TRUE)
+raster::writeRaster(BIO7,  file.path(output_dir, "BIO7.tif"), overwrite = TRUE)
 
 # ======================================================
-# 4) BIOMOD_FormatingData
+# 4) BIOMOD_FormatingData (com PA)
 # ======================================================
 biomod_data <- BIOMOD_FormatingData(
   resp.var = resp.var,
@@ -81,6 +91,8 @@ biomod_data <- BIOMOD_FormatingData(
   filter.raster = TRUE,
   resp.name = "Vampyrum.spectrum"
 )
+
+saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste64.rds"))
 
 # ======================================================
 # 5) Modelagem
@@ -105,6 +117,8 @@ models <- BIOMOD_Modeling(
   var.import = 3
 )
 
+saveRDS(models, file.path(output_dir, "models_teste64.rds"))
+
 # ======================================================
 # 6) Ensemble
 # ======================================================
@@ -118,403 +132,73 @@ ensemble <- BIOMOD_EnsembleModeling(
   var.import = 3
 )
 
+saveRDS(ensemble, file.path(output_dir, "ensemble_teste64.rds"))
+
 # ======================================================
-# 7) Ensemble Forecasting (ROBUSTO)
+# 7) Ensemble Forecasting (RASTER ROBUSTO)
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble,
-  proj.name = "current",
+  proj.name = "current_teste64",
   new.env = env
 )
+saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste64.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
-# 1) Tentar converter diretamente
+# 1) tentativa direta
 ensemble_raster_single <- tryCatch(terra::rast(pred_obj)[[1]], error = function(e) NULL)
 
-# 2) Fallback: converter via Raster* (muito comum funcionar melhor)
+# 2) fallback via Raster*
 if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)) {
   rs <- tryCatch(raster::stack(pred_obj), error = function(e) NULL)
-  if (!is.null(rs)) {
-    ensemble_raster_single <- terra::rast(rs)[[1]]
-  }
+  if (!is.null(rs)) ensemble_raster_single <- terra::rast(rs)[[1]]
 }
 
-# 3) Checagem final
+# 3) checagem final
 if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)) {
-  stop("Não consegui obter raster do ensemble COM valores. Veja class/str de get_predictions(ensemble_proj).")
+  stop("Não consegui obter raster do ensemble com valores. Veja class/str de get_predictions(ensemble_proj).")
 }
 
-# 4) Salvar (agora não dará 'no cell values')
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability.tif"),
+  file.path(output_dir, "ensemble_suitability_teste64.tif"),
   overwrite = TRUE
 )
 
 # ======================================================
-# 8) Avaliações
+# 8) Avaliações (Modelos: validation | Ensemble: calibration)
 # ======================================================
 ev_models <- get_evaluations(models)
-ev_ens <- get_evaluations(ensemble)
-
 df_models <- ev_models %>%
-  filter(metric.eval %in% c("TSS","ROC")) %>%
-  transmute(Modelo = algo, Metrica = metric.eval, Valor = validation) %>%
-  filter(is.finite(Valor))
+  dplyr::filter(metric.eval %in% c("TSS","ROC")) %>%
+  dplyr::transmute(Modelo = algo, Metrica = metric.eval, Valor = validation) %>%
+  dplyr::filter(is.finite(Valor), !is.na(Valor))
 
+# ensemble: no seu caso, validation vem NA, então usar calibration
+ev_ens <- get_evaluations(ensemble)
 df_ens <- ev_ens %>%
-  filter(algo == "EMmean", metric.eval %in% c("TSS","ROC")) %>%
-  transmute(Metrica = metric.eval, Valor = calibration)
+  dplyr::filter(algo == "EMmean", metric.eval %in% c("TSS","ROC")) %>%
+  dplyr::transmute(Metrica = metric.eval, Valor = calibration) %>%
+  dplyr::filter(is.finite(Valor), !is.na(Valor))
 
 ens_tss <- df_ens %>% filter(Metrica=="TSS") %>% pull(Valor)
 ens_roc <- df_ens %>% filter(Metrica=="ROC") %>% pull(Valor)
+ens_tss <- ifelse(length(ens_tss) > 0, ens_tss[1], NA_real_)
+ens_roc <- ifelse(length(ens_roc) > 0, ens_roc[1], NA_real_)
 
 # ======================================================
-# 9) IMPORTÂNCIA DAS VARIÁVEIS
+# 9) Importância das variáveis (com valores)
 # ======================================================
 importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   group_by(expl.var) %>%
-  summarise(importance = mean(var.imp, na.rm=TRUE)) %>%
+  summarise(importance = mean(var.imp, na.rm = TRUE), .groups="drop") %>%
   rename(var = expl.var)
 
-# ======================================================
-# ======================================================
-# 10) PAINEL POR VARIÁVEL (MAPA + BOX Presença x PA)
-# ======================================================
+write.csv(importance, file.path(output_dir, "importance_teste64.csv"), row.names = FALSE)
 
-# ---- 10.1) Extrair PA REAL (sem bm_PseudoAbsences) ----
-# Pega a repetição PA1 (você pode trocar rep_id)
-rep_id <- 1
-pa_colname <- paste0("PA", rep_id)
-
-if (!("PA.table" %in% slotNames(biomod_data))) {
-  stop("biomod_data não tem slot PA.table. Confirme que BIOMOD_FormatingData foi rodado com PA.nb.rep > 0.")
-}
-
-pa_tab <- biomod_data@PA.table
-if (is.null(pa_tab) || nrow(pa_tab) == 0) stop("PA.table está vazio.")
-
-# escolher a coluna certa (PA1, PA2...); se não existir, usa a primeira
-if (!is.null(colnames(pa_tab)) && (pa_colname %in% colnames(pa_tab))) {
-  pa_vec <- pa_tab[, pa_colname]
-} else {
-  pa_vec <- pa_tab[, 1]
-  warning("Coluna ", pa_colname, " não encontrada em PA.table. Usando a primeira coluna.")
-}
-
-# pseudo-ausência é 0 (presença costuma ser 1)
-abs_idx <- which(is.finite(pa_vec) & pa_vec == 0)
-
-if (length(abs_idx) == 0) {
-  stop("Não encontrei pseudo-ausências (valor 0) na PA.table. Verifique a estratégia/geração de PA.")
-}
-
-# coordenadas das pseudo-ausências
-pa_pts <- biomod_data@coord[abs_idx, , drop = FALSE]
-pa_pts <- as.data.frame(pa_pts)
-colnames(pa_pts) <- c("x","y")
-
-cat("✓ PAs (rep", rep_id, "):", nrow(pa_pts), "\n")
-
-# ---- 10.2) Função do painel por variável ----
-make_var_panel <- function(r, varname, coords_df, pa_df, imp_df) {
-
-  # importância no título (opcional)
-  imp_val <- imp_df %>% filter(var == varname) %>% pull(importance)
-  imp_txt <- ifelse(length(imp_val) > 0, sprintf(" | Imp: %.3f", imp_val[1]), " | Imp: NA")
-
-  pres_vals <- terra::extract(terra::rast(r), coords_df[, c("x","y")])[,2]
-  pa_vals   <- terra::extract(terra::rast(r), pa_df[, c("x","y")])[,2]
-
-  df <- data.frame(
-    Valor = c(pres_vals, pa_vals),
-    Grupo = c(rep("Presença", length(pres_vals)),
-              rep("Pseudo-ausência", length(pa_vals)))
-  ) %>% filter(is.finite(Valor), !is.na(Valor))
-
-  map <- ggplot() +
-    geom_spatraster(data = terra::rast(r)) +
-    scale_fill_viridis_c() +
-    labs(title = paste0(varname, imp_txt)) +
-    theme_minimal()
-
-  box <- ggplot(df, aes(Grupo, Valor, fill = Grupo)) +
-    geom_violin(alpha = 0.35, trim = TRUE, color = NA) +
-    geom_boxplot(width = 0.25, outlier.size = 1) +
-    geom_jitter(width = 0.12, size = 0.6, alpha = 0.5) +
-    theme_minimal() +
-    theme(legend.position = "none")
-
-  map | box
-}
-
-# ---- 10.3) Construir painéis ----
-var_panels <- lapply(names(env), function(v) {
-  make_var_panel(env[[v]], v, coords, pa_pts, importance)
-})
-
-vars_panel <- wrap_plots(var_panels, ncol = 2)
-
-# ======================================================
-# 11) GRÁFICOS TSS / ROC
-# ======================================================
-plot_metric <- function(metric, lim, ens_val) {
-  ggplot(df_models %>% filter(Metrica==metric),
-         aes(Modelo, Valor, fill=Modelo)) +
-    geom_violin(alpha=0.4) +
-    geom_boxplot(width=0.3) +
-    geom_hline(yintercept = lim, linetype="dashed", color="red") +
-    geom_hline(yintercept = ens_val, color="blue") +
-    theme_minimal() +
-    ylim(0,1)
-}
-
-tss_plot <- plot_metric("TSS", 0.7, ens_tss)
-roc_plot <- plot_metric("ROC", 0.8, ens_roc)
-
-eval_panel <- tss_plot | roc_plot
-
-
-# ======================================================
-# PAINEL COMPLETO FINAL – Vampyrum spectrum (COM PA REAL)
-# ======================================================
-
-library(dplyr)
-library(ggplot2)
-library(patchwork)
-library(viridis)
-library(terra)
-library(tidyterra)
-library(sf)
-library(rnaturalearth)
-library(rnaturalearthdata)
-
-# -----------------------------
-# 0) CHECAGENS BÁSICAS
-# -----------------------------
-if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
-
-req_objs <- c("output_dir","coords","models_4layers","ensemble_4layers","importance_df","ensemble_raster_single")
-miss <- req_objs[!sapply(req_objs, exists)]
-if (length(miss) > 0) stop("Faltam objetos no ambiente: ", paste(miss, collapse = ", "))
-
-if (!all(c("var","importance") %in% names(importance_df))) {
-  stop("importance_df deve ter colunas: var, importance")
-}
-
-# -----------------------------
-# 1) OBJETOS CARTOGRÁFICOS
-# -----------------------------
-countries <- ne_countries(scale = "medium", returnclass = "sf")
-pres_coords <- data.frame(lon = coords$x, lat = coords$y)
-
-# -----------------------------
-# 2) GARANTIR env_obj (SpatRaster com 4 layers)
-# -----------------------------
-if (!exists("env_obj")) {
-  if (exists("env_data4layers")) {
-    env_obj <- terra::rast(env_data4layers)
-  } else if (exists("env")) {
-    env_obj <- terra::rast(env)
-  } else {
-    stop("Não encontrei env_obj nem env_data4layers nem env. Preciso das layers para o painel das variáveis.")
-  }
-}
-
-# -----------------------------
-# 3) PEGAR O OBJETO BIOMOD_FormatingData (bm_obj)
-# -----------------------------
-bm_obj <- NULL
-if (exists("biomod_data4layers")) bm_obj <- biomod_data4layers
-if (is.null(bm_obj) && exists("biomod_data")) bm_obj <- biomod_data
-if (is.null(bm_obj) && exists("bmdata")) bm_obj <- bmdata
-if (is.null(bm_obj)) stop("Não encontrei objeto de formatação (biomod_data4layers / biomod_data / bmdata).")
-
-# -----------------------------
-# 4) EXTRAÇÃO ROBUSTA DE PSEUDO-AUSÊNCIAS (PA) – SEM FICTÍCIO
-#    Método A: slot @PA.table (mais confiável)
-#    Método B: bm_PseudoAbsences (fallback)
-# -----------------------------
-get_pa_points <- function(bm, rep_id = 1) {
-
-  # ---------- Método A: @PA.table ----------
-  if ("PA.table" %in% slotNames(bm)) {
-    pa_tab <- tryCatch(bm@PA.table, error = function(e) NULL)
-
-    if (!is.null(pa_tab) && nrow(pa_tab) > 0) {
-
-      # escolher coluna da repetição
-      # pode ser matrix com colnames "PA1","PA2"... ou apenas 1 coluna
-      if (!is.null(colnames(pa_tab))) {
-        colname <- paste0("PA", rep_id)
-        if (colname %in% colnames(pa_tab)) {
-          pa_col <- pa_tab[, colname]
-        } else {
-          pa_col <- pa_tab[, 1]
-        }
-      } else {
-        # sem colnames
-        pa_col <- pa_tab[, min(rep_id, ncol(pa_tab))]
-      }
-
-      # pseudo-ausência costuma ser 0, presenças 1, e NA para pontos fora
-      abs_idx <- which(is.finite(pa_col) & pa_col == 0)
-      if (length(abs_idx) > 0) {
-        xy <- bm@coord[abs_idx, , drop = FALSE]
-        return(data.frame(lon = xy[,1], lat = xy[,2]))
-      }
-    }
-  }
-
-  # ---------- Método B: bm_PseudoAbsences (fallback) ----------
-  pa_pts <- tryCatch({
-    pa_list <- bm_PseudoAbsences(bm)
-    if (is.null(pa_list) || length(pa_list) == 0) return(NULL)
-    pa1 <- pa_list[[rep_id]]
-
-    # coordenadas direto
-    if (is.matrix(pa1) || is.data.frame(pa1)) {
-      pa1 <- as.data.frame(pa1)
-      if (ncol(pa1) >= 2) return(data.frame(lon = pa1[[1]], lat = pa1[[2]]))
-    }
-
-    # índices
-    if (is.numeric(pa1)) {
-      xy <- bm@coord[pa1, , drop = FALSE]
-      return(data.frame(lon = xy[,1], lat = xy[,2]))
-    }
-
-    NULL
-  }, error = function(e) NULL)
-
-  return(pa_pts)
-}
-
-pa_pts <- get_pa_points(bm_obj, rep_id = 1)
-
-if (is.null(pa_pts) || nrow(pa_pts) == 0) {
-  stop(
-    "Pseudo-ausências NÃO encontradas no objeto BIOMOD.\n",
-    "Checklist:\n",
-    "1) Confirme que BIOMOD_FormatingData foi rodado com PA.nb.rep > 0 e PA.nb.absences > 0.\n",
-    "2) Confirme que você está usando o MESMO objeto bm_obj usado na modelagem.\n",
-    "3) Rode: slotNames(bm_obj) e veja se existe 'PA.table'.\n"
-  )
-}
-
-cat("✓ Pseudo-ausências carregadas:", nrow(pa_pts), "\n")
-
-# -----------------------------
-# 5) EXTRAÇÃO CORRETA DAS MÉTRICAS
-#    - modelos: validation
-#    - ensemble: calibration (no seu caso validation=NA)
-# -----------------------------
-ev_models <- get_evaluations(models_4layers)
-
-df_models <- ev_models %>%
-  filter(metric.eval %in% c("TSS","ROC")) %>%
-  transmute(Modelo = algo, Metrica = metric.eval, Valor = validation) %>%
-  filter(is.finite(Valor), !is.na(Valor))
-
-df_models$Modelo <- factor(df_models$Modelo, levels = c("GLM","GAM","GBM","RF","MAXENT"))
-
-ev_ens <- get_evaluations(ensemble_4layers)
-
-df_ens <- ev_ens %>%
-  filter(algo == "EMmean", metric.eval %in% c("TSS","ROC")) %>%
-  transmute(Metrica = metric.eval, Valor = calibration) %>%
-  filter(is.finite(Valor), !is.na(Valor))
-
-ens_tss <- df_ens %>% filter(Metrica == "TSS") %>% pull(Valor)
-ens_roc <- df_ens %>% filter(Metrica == "ROC") %>% pull(Valor)
-
-if (length(ens_tss) == 0) stop("Ensemble não possui TSS válido em calibration.")
-if (length(ens_roc) == 0) stop("Ensemble não possui ROC válido em calibration.")
-ens_tss <- ens_tss[1]
-ens_roc <- ens_roc[1]
-
-# -----------------------------
-# 6) PLOTS TSS / ROC (linha do Ensemble)
-# -----------------------------
-tss_plot <- ggplot(df_models %>% filter(Metrica == "TSS"),
-                   aes(x = Modelo, y = Valor, fill = Modelo)) +
-  geom_violin(alpha = 0.35, trim = TRUE, color = NA) +
-  geom_boxplot(width = 0.35, outlier.size = 1.2) +
-  geom_jitter(width = 0.12, alpha = 0.6, size = 1, color = "darkgray") +
-  geom_hline(yintercept = 0.7, linetype = "dashed", color = "red", linewidth = 0.9) +
-  geom_hline(yintercept = ens_tss, color = "blue", linewidth = 1.2) +
-  annotate("text", x = Inf, y = ens_tss,
-           label = sprintf("Ensemble: %.3f", ens_tss),
-           hjust = 1.05, vjust = -0.4, color = "blue", size = 3.5) +
-  scale_fill_viridis_d(option = "C", alpha = 0.7) +
-  coord_cartesian(ylim = c(0,1)) +
-  theme_minimal() +
-  labs(title = "TSS – Modelos Individuais (Ensemble como referência)",
-       y = "TSS", x = "Modelo") +
-  theme(legend.position = "none",
-        plot.title = element_text(face = "bold", hjust = 0.5))
-
-roc_plot <- ggplot(df_models %>% filter(Metrica == "ROC"),
-                   aes(x = Modelo, y = Valor, fill = Modelo)) +
-  geom_violin(alpha = 0.35, trim = TRUE, color = NA) +
-  geom_boxplot(width = 0.35, outlier.size = 1.2) +
-  geom_jitter(width = 0.12, alpha = 0.6, size = 1, color = "darkgray") +
-  geom_hline(yintercept = 0.8, linetype = "dashed", color = "red", linewidth = 0.9) +
-  geom_hline(yintercept = ens_roc, color = "blue", linewidth = 1.2) +
-  annotate("text", x = Inf, y = ens_roc,
-           label = sprintf("Ensemble: %.3f", ens_roc),
-           hjust = 1.05, vjust = -0.4, color = "blue", size = 3.5) +
-  scale_fill_viridis_d(option = "C", alpha = 0.7) +
-  coord_cartesian(ylim = c(0,1)) +
-  theme_minimal() +
-  labs(title = "ROC – Modelos Individuais (Ensemble como referência)",
-       y = "ROC (AUC)", x = "Modelo") +
-  theme(legend.position = "none",
-        plot.title = element_text(face = "bold", hjust = 0.5))
-
-evaluation_panel <- tss_plot | roc_plot
-
-# -----------------------------
-# 7) MAPA DO ENSEMBLE (SEM geom_spatraster)
-# -----------------------------
-# recorte opcional (se quiser manter o mesmo enquadramento)
-target_ext <- terra::ext(-120, -30, -60, 30)
-
-ens_crop <- tryCatch(terra::crop(ensemble_raster_single, target_ext), error = function(e) NULL)
-use_r <- ens_crop
-if (is.null(use_r) || !terra::hasValues(use_r)) {
-  message("⚠️ Crop vazio. Vou plotar com a extensão real do raster.")
-  use_r <- ensemble_raster_single
-}
-
-ens_df <- as.data.frame(use_r, xy = TRUE, na.rm = TRUE)
-colnames(ens_df)[3] <- "Adequabilidade"
-
-# limites
-if (!is.null(ens_crop) && terra::hasValues(ens_crop)) {
-  xlim_use <- c(-120, -30); ylim_use <- c(-60, 30)
-} else {
-  e <- terra::ext(use_r)
-  xlim_use <- c(e$xmin, e$xmax); ylim_use <- c(e$ymin, e$ymax)
-}
-
-suitability_map <- ggplot() +
-  geom_raster(data = ens_df, aes(x = x, y = y, fill = Adequabilidade)) +
-  geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.2) +
-  geom_point(data = pres_coords, aes(x = lon, y = lat),
-             color = "red", size = 1, alpha = 0.6) +
-  scale_fill_viridis_c(option = "plasma", name = "Adequabilidade") +
-  coord_sf(xlim = xlim_use, ylim = ylim_use, expand = FALSE) +
-  theme_minimal() +
-  labs(title = "Mapa de Adequabilidade do Habitat – Ensemble") +
-  theme(plot.title = element_text(face = "bold", hjust = 0.5))
-
-# -----------------------------
-# 8) IMPORTÂNCIA (com valores nas barras)
-# -----------------------------
 importance_plot <- ggplot(
-  importance_df %>% arrange(desc(importance)),
+  importance %>% arrange(desc(importance)),
   aes(x = reorder(var, importance), y = importance)
 ) +
   geom_col(fill = "steelblue") +
@@ -523,188 +207,94 @@ importance_plot <- ggplot(
   coord_flip() +
   scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
   theme_minimal() +
-  labs(title = "Importância das Variáveis (Ensemble)", x = "", y = "Importância") +
-  theme(plot.title = element_text(face = "bold", hjust = 0.5))
+  labs(title="Importância das Variáveis (Ensemble)", x="", y="Importância") +
+  theme(plot.title = element_text(face="bold", hjust=0.5))
 
-# -----------------------------
-# 9) FUNÇÃO: painel por variável (MAPA + distribuição Presença x PA)
-#    + importância no título do MAPA
-# -----------------------------
-make_var_panel_pa <- function(r, varname, pres_coords, pa_pts, countries, importance_df) {
+# ======================================================
+# 10) Pseudo-ausências (ROBUSTO via @PA.table)
+# ======================================================
+rep_id <- 1
+pa_colname <- paste0("PA", rep_id)
 
-  imp_val <- importance_df %>% filter(var == varname) %>% pull(importance)
-  imp_txt <- ifelse(length(imp_val) > 0, sprintf("Importância: %.3f", imp_val), "Importância: NA")
+if (!("PA.table" %in% slotNames(biomod_data))) stop("biomod_data não tem PA.table.")
+pa_tab <- biomod_data@PA.table
+if (is.null(pa_tab) || nrow(pa_tab) == 0) stop("PA.table vazio.")
 
-  map_plot <- ggplot() +
-    geom_spatraster(data = r) +
-    geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.1) +
-    geom_point(data = pres_coords, aes(x = lon, y = lat), color = "red", size = 0.6) +
-    scale_fill_viridis_c(option = "viridis", name = varname) +
-    coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
-    theme_minimal() +
-    labs(title = paste0(varname, "\n", imp_txt)) +
-    theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 10))
-
-  pres_vals <- terra::extract(r, pres_coords[, c("lon","lat")])[,2]
-  pres_vals <- pres_vals[is.finite(pres_vals)]
-
-  pa_vals <- terra::extract(r, pa_pts[, c("lon","lat")])[,2]
-  pa_vals <- pa_vals[is.finite(pa_vals)]
-
-  df <- data.frame(
-    valor = c(pres_vals, pa_vals),
-    grupo = c(rep("Presença", length(pres_vals)),
-              rep("Pseudo-ausência", length(pa_vals)))
-  )
-
-  dist_plot <- ggplot(df, aes(x = grupo, y = valor, fill = grupo)) +
-    geom_violin(alpha = 0.35, trim = TRUE, color = NA) +
-    geom_boxplot(width = 0.25, outlier.size = 1) +
-    geom_jitter(width = 0.12, size = 0.6, alpha = 0.5) +
-    theme_minimal() +
-    labs(title = paste("Distribuição –", varname), x = "", y = "") +
-    theme(legend.position = "none",
-          plot.title = element_text(face = "bold", hjust = 0.5, size = 10))
-
-  map_plot | dist_plot
+if (!is.null(colnames(pa_tab)) && (pa_colname %in% colnames(pa_tab))) {
+  pa_vec <- pa_tab[, pa_colname]
+} else {
+  pa_vec <- pa_tab[, 1]
+  warning("Coluna ", pa_colname, " não encontrada. Usando a primeira coluna de PA.table.")
 }
 
-# -----------------------------
-# 10) PAINEL DAS VARIÁVEIS (4 layers)
-# -----------------------------
+abs_idx <- which(is.finite(pa_vec) & pa_vec == 0)
+if (length(abs_idx) == 0) stop("Não encontrei pseudo-ausências (0) na PA.table.")
+
+pa_pts <- biomod_data@coord[abs_idx, , drop = FALSE]
+pa_pts <- as.data.frame(pa_pts)
+colnames(pa_pts) <- c("x","y")
+cat("Pseudo-ausências (rep", rep_id, "):", nrow(pa_pts), "\n")
+
 # ======================================================
-# PAINEL DAS VARIÁVEIS (MAPA + Distribuição Presença x PA)
-# sem geom_spatraster (evita erro spatSample)
+# 11) Painel por variável (SEM geom_spatraster)
 # ======================================================
-
-make_var_panel <- function(r, varname, coords_df, pa_df, imp_df) {
-
-  # --- Importância no título ---
-  imp_val <- imp_df %>% dplyr::filter(var == varname) %>% dplyr::pull(importance)
-  imp_txt <- ifelse(length(imp_val) > 0, sprintf(" | Imp: %.3f", imp_val[1]), " | Imp: NA")
-
-  # --- 1) MAPA (raster -> data.frame xy -> geom_raster) ---
-  rr <- terra::rast(r)
-
-  # (opcional) recorte para a mesma janela de análise, deixa leve
-  rr_crop <- tryCatch(terra::crop(rr, terra::ext(-120, -30, -60, 30)), error = function(e) NULL)
-  rr_use <- rr_crop
-  if (is.null(rr_use) || !terra::hasValues(rr_use)) rr_use <- rr
-
-  r_df <- as.data.frame(rr_use, xy = TRUE, na.rm = TRUE)
-  colnames(r_df)[3] <- "val"
-
-  map <- ggplot() +
-    geom_raster(data = r_df, aes(x = x, y = y, fill = val)) +
-    scale_fill_viridis_c(option = "viridis", name = varname) +
-    coord_sf(expand = FALSE) +
-    theme_minimal() +
-    labs(title = paste0(varname, imp_txt))
-
-  # --- 2) DISTRIBUIÇÃO Presença x PA ---
-  pres_vals <- terra::extract(rr, coords_df[, c("x","y")])[,2]
-  pa_vals   <- terra::extract(rr, pa_df[, c("x","y")])[,2]
-
-  df <- data.frame(
-    Valor = c(pres_vals, pa_vals),
-    Grupo = c(rep("Presença", length(pres_vals)),
-              rep("Pseudo-ausência", length(pa_vals)))
-  ) %>%
-    dplyr::filter(is.finite(Valor), !is.na(Valor))
-
-  dist <- ggplot(df, aes(x = Grupo, y = Valor, fill = Grupo)) +
-    geom_violin(alpha = 0.35, trim = TRUE, color = NA) +
-    geom_boxplot(width = 0.25, outlier.size = 1) +
-    geom_jitter(width = 0.12, size = 0.6, alpha = 0.5) +
-    theme_minimal() +
-    labs(title = paste("Distribuição –", varname), x = "", y = "") +
-    theme(legend.position = "none")
-
-  map | dist
-}
-
-# ------------------------------------------------------
-# Construir os 4 painéis (um por variável) e juntar
-# ------------------------------------------------------
-# ======================================================
-# PAINEL DAS VARIÁVEIS (MAPA + Distribuição Presença x PA)
-# DEFINITIVO: converte coordenadas para SpatVector
-# ======================================================
-
-# helper: transforma qualquer objeto de coords em data.frame com x,y
 as_xy_df <- function(obj) {
   df <- as.data.frame(obj)
 
-  # 1) nomes esperados
-  if (all(c("x","y") %in% names(df))) {
-    out <- df[, c("x","y"), drop = FALSE]
-    return(out)
-  }
+  if (all(c("x","y") %in% names(df))) return(df[, c("x","y"), drop=FALSE])
   if (all(c("lon","lat") %in% names(df))) {
-    out <- df[, c("lon","lat"), drop = FALSE]
-    names(out) <- c("x","y")
-    return(out)
+    out <- df[, c("lon","lat"), drop=FALSE]; names(out) <- c("x","y"); return(out)
   }
   if (all(c("longitude","latitude") %in% names(df))) {
-    out <- df[, c("longitude","latitude"), drop = FALSE]
-    names(out) <- c("x","y")
-    return(out)
+    out <- df[, c("longitude","latitude"), drop=FALSE]; names(out) <- c("x","y"); return(out)
   }
 
-  # 2) fallback: pegar as 2 primeiras colunas numéricas
   num_cols <- which(sapply(df, is.numeric))
   if (length(num_cols) >= 2) {
-    out <- df[, num_cols[1:2], drop = FALSE]
+    out <- df[, num_cols[1:2], drop=FALSE]
     names(out) <- c("x","y")
-    warning("Coordenadas não tinham nomes padrão; usei as 2 primeiras colunas numéricas como x,y.")
+    warning("Coords sem nomes padrão; usei as 2 primeiras colunas numéricas como x,y.")
     return(out)
   }
 
-  stop("Não consegui obter coordenadas x,y. Verifique coords/pa_pts.")
+  stop("Não consegui obter coordenadas x,y.")
 }
 
-# helper: cria SpatVector de pontos
 as_points_vect <- function(xy_df, crs_str) {
   xy_df <- as.data.frame(xy_df)
-  if (!all(c("x","y") %in% names(xy_df))) stop("xy_df precisa ter colunas x e y.")
   terra::vect(xy_df, geom = c("x","y"), crs = crs_str)
 }
 
 make_var_panel <- function(r, varname, coords_obj, pa_obj, imp_df) {
 
   rr <- terra::rast(r)
-
-  # CRS do raster (se vier vazio, assume EPSG:4326)
   crs_r <- terra::crs(rr)
   if (is.na(crs_r) || crs_r == "") crs_r <- "EPSG:4326"
 
-  # padronizar coords e PA e converter para SpatVector
   coords_xy <- as_xy_df(coords_obj)
   pa_xy     <- as_xy_df(pa_obj)
 
   coords_v  <- as_points_vect(coords_xy, crs_r)
   pa_v      <- as_points_vect(pa_xy, crs_r)
 
-  # --- Importância no título ---
   imp_val <- imp_df %>% dplyr::filter(var == varname) %>% dplyr::pull(importance)
-  imp_txt <- ifelse(length(imp_val) > 0, sprintf(" | Imp: %.3f", imp_val[1]), " | Imp: NA")
+  imp_txt <- ifelse(length(imp_val)>0, sprintf(" | Imp: %.3f", imp_val[1]), " | Imp: NA")
 
-  # --- 1) MAPA (raster -> df -> geom_raster) ---
-  rr_crop <- tryCatch(terra::crop(rr, terra::ext(-120, -30, -60, 30)), error = function(e) NULL)
+  # mapa: converter raster -> df e plotar
+  rr_crop <- tryCatch(terra::crop(rr, terra::ext(-120, -30, -60, 30)), error=function(e) NULL)
   rr_use <- rr_crop
   if (is.null(rr_use) || !terra::hasValues(rr_use)) rr_use <- rr
 
-  r_df <- as.data.frame(rr_use, xy = TRUE, na.rm = TRUE)
+  r_df <- as.data.frame(rr_use, xy=TRUE, na.rm=TRUE)
   colnames(r_df)[3] <- "val"
 
   map <- ggplot() +
-    geom_raster(data = r_df, aes(x = x, y = y, fill = val)) +
-    scale_fill_viridis_c(option = "viridis", name = varname) +
+    geom_raster(data = r_df, aes(x=x, y=y, fill=val)) +
+    scale_fill_viridis_c(option="viridis", name=varname) +
     coord_sf(expand = FALSE) +
     theme_minimal() +
     labs(title = paste0(varname, imp_txt))
 
-  # --- 2) DISTRIBUIÇÃO Presença x PA (agora via SpatVector) ---
   pres_vals <- terra::extract(rr, coords_v)[,2]
   pa_vals   <- terra::extract(rr, pa_v)[,2]
 
@@ -712,64 +302,113 @@ make_var_panel <- function(r, varname, coords_obj, pa_obj, imp_df) {
     Valor = c(pres_vals, pa_vals),
     Grupo = c(rep("Presença", length(pres_vals)),
               rep("Pseudo-ausência", length(pa_vals)))
-  ) %>%
-    dplyr::filter(is.finite(Valor), !is.na(Valor))
+  ) %>% dplyr::filter(is.finite(Valor), !is.na(Valor))
 
-  dist <- ggplot(df, aes(x = Grupo, y = Valor, fill = Grupo)) +
-    geom_violin(alpha = 0.35, trim = TRUE, color = NA) +
-    geom_boxplot(width = 0.25, outlier.size = 1) +
-    geom_jitter(width = 0.12, size = 0.6, alpha = 0.5) +
+  dist <- ggplot(df, aes(Grupo, Valor, fill=Grupo)) +
+    geom_violin(alpha=0.35, trim=TRUE, color=NA) +
+    geom_boxplot(width=0.25, outlier.size=1) +
+    geom_jitter(width=0.12, size=0.6, alpha=0.5) +
     theme_minimal() +
-    labs(title = paste("Distribuição –", varname), x = "", y = "") +
-    theme(legend.position = "none")
+    labs(title=paste("Distribuição –", varname), x="", y="") +
+    theme(legend.position="none")
 
   map | dist
 }
 
-# ------------------------------------------------------
-# Construir os 4 painéis (um por variável) e juntar
-# ------------------------------------------------------
 var_panels <- lapply(names(env), function(v) {
   make_var_panel(env[[v]], v, coords, pa_pts, importance)
 })
 
-vars_panel <- wrap_plots(var_panels, ncol = 2) +
+vars_panel <- wrap_plots(var_panels, ncol=2) +
   plot_annotation(
-    title = "Variáveis Ambientais: Mapa + Distribuição (Presença × Pseudo-ausência)",
-    theme = theme(plot.title = element_text(face = "bold", hjust = 0.5))
+    title="Variáveis Ambientais: Mapa + Distribuição (Presença × Pseudo-ausência)",
+    theme = theme(plot.title = element_text(face="bold", hjust=0.5))
   )
 
-# 11) PAINEL FINAL
-# -----------------------------
+# ======================================================
+# 12) Mapas e métricas finais
+# ======================================================
+countries <- rnaturalearth::ne_countries(scale="medium", returnclass="sf")
+pres_coords <- data.frame(lon = coords$x, lat = coords$y)
+
+# Mapa ensemble (sem geom_spatraster)
+target_ext <- terra::ext(-120, -30, -60, 30)
+ens_crop <- tryCatch(terra::crop(ensemble_raster_single, target_ext), error=function(e) NULL)
+use_r <- ens_crop
+if (is.null(use_r) || !terra::hasValues(use_r)) use_r <- ensemble_raster_single
+
+ens_df <- as.data.frame(use_r, xy=TRUE, na.rm=TRUE)
+colnames(ens_df)[3] <- "Adequabilidade"
+
+if (!is.null(ens_crop) && terra::hasValues(ens_crop)) {
+  xlim_use <- c(-120, -30); ylim_use <- c(-60, 30)
+} else {
+  e <- terra::ext(use_r)
+  xlim_use <- c(e$xmin, e$xmax); ylim_use <- c(e$ymin, e$ymax)
+}
+
+suitability_map <- ggplot() +
+  geom_raster(data = ens_df, aes(x=x, y=y, fill=Adequabilidade)) +
+  geom_sf(data = countries, fill=NA, color="black", linewidth=0.2) +
+  geom_point(data = pres_coords, aes(x=lon, y=lat), color="red", size=1, alpha=0.6) +
+  scale_fill_viridis_c(option="plasma", name="Adequabilidade") +
+  coord_sf(xlim=xlim_use, ylim=ylim_use, expand=FALSE) +
+  theme_minimal() +
+  labs(title="Mapa de Adequabilidade do Habitat – Ensemble") +
+  theme(plot.title = element_text(face="bold", hjust=0.5))
+
+plot_metric <- function(metric, lim, ens_val) {
+  p <- ggplot(df_models %>% filter(Metrica==metric),
+              aes(Modelo, Valor, fill=Modelo)) +
+    geom_violin(alpha=0.4, trim=TRUE, color=NA) +
+    geom_boxplot(width=0.3, outlier.size=1) +
+    geom_hline(yintercept=lim, linetype="dashed", color="red") +
+    theme_minimal() +
+    coord_cartesian(ylim=c(0,1)) +
+    theme(legend.position="none") +
+    labs(title=metric, x="Modelo", y=metric)
+
+  if (is.finite(ens_val)) {
+    p <- p +
+      geom_hline(yintercept=ens_val, color="blue", linewidth=1.1) +
+      annotate("text", x=Inf, y=ens_val,
+               label=sprintf("Ensemble: %.3f", ens_val),
+               hjust=1.05, vjust=-0.4, color="blue", size=3.5)
+  }
+  p
+}
+
+tss_plot <- plot_metric("TSS", 0.7, ens_tss)
+roc_plot <- plot_metric("ROC", 0.8, ens_roc)
+evaluation_panel <- tss_plot | roc_plot
+
+# ======================================================
+# 13) Painel final + salvar
+# ======================================================
 final_panel <- (suitability_map | importance_plot) /
-  variables_grid_side /
+  vars_panel /
   evaluation_panel +
   plot_annotation(
-    title = "MODELAGEM DE NICHO ECOLÓGICO – Vampyrum spectrum",
-    theme = theme(plot.title = element_text(size = 14, face = "bold"))
+    title="PAINEL COMPLETO – MODELAGEM DE NICHO (teste64)",
+    theme = theme(plot.title = element_text(size=14, face="bold"))
   )
 
-# -----------------------------
-# 12) SALVAR (robusto)
-# -----------------------------
-out_panel <- file.path(output_dir, "04_Painel_Final_COMPLETO.png")
-cat("Salvando painel em:", out_panel, "\n")
+out_panel <- file.path(output_dir, "04_Painel_Final_COMPLETO_teste64.png")
+cat("Salvando:", out_panel, "\n")
 
 ok <- tryCatch({
-  ggsave(out_panel, plot = final_panel,
-         width = 22, height = 24, units = "in",
-         dpi = 300, limitsize = FALSE, device = "png")
+  ggsave(out_panel, plot = final_panel, width=22, height=24, units="in", dpi=300, limitsize=FALSE)
   TRUE
-}, error = function(e) {
-  message("Falhou no ggsave(): ", e$message)
+}, error=function(e) {
+  message("ggsave falhou: ", e$message)
   FALSE
 })
 
 if (!ok) {
-  message("Fallback: png() + print() ...")
-  png(out_panel, width = 22, height = 24, units = "in", res = 300)
+  message("Fallback png() ...")
+  png(out_panel, width=22, height=24, units="in", res=300)
   print(final_panel)
   dev.off()
 }
 
-cat("✅ Painel salvo.\n")
+cat("✅ Concluído. Arquivos em:", output_dir, "\n")
