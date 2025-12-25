@@ -119,7 +119,7 @@ ensemble <- BIOMOD_EnsembleModeling(
 )
 
 # ======================================================
-# 7) Ensemble Forecasting
+# 7) Ensemble Forecasting (ROBUSTO)
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble,
@@ -127,7 +127,30 @@ ensemble_proj <- BIOMOD_EnsembleForecasting(
   new.env = env
 )
 
-ensemble_raster <- terra::rast(get_predictions(ensemble_proj))[[1]]
+pred_obj <- get_predictions(ensemble_proj)
+
+# 1) Tentar converter diretamente
+ensemble_raster_single <- tryCatch(terra::rast(pred_obj)[[1]], error = function(e) NULL)
+
+# 2) Fallback: converter via Raster* (muito comum funcionar melhor)
+if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)) {
+  rs <- tryCatch(raster::stack(pred_obj), error = function(e) NULL)
+  if (!is.null(rs)) {
+    ensemble_raster_single <- terra::rast(rs)[[1]]
+  }
+}
+
+# 3) Checagem final
+if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)) {
+  stop("Não consegui obter raster do ensemble COM valores. Veja class/str de get_predictions(ensemble_proj).")
+}
+
+# 4) Salvar (agora não dará 'no cell values')
+terra::writeRaster(
+  ensemble_raster_single,
+  file.path(output_dir, "ensemble_suitability.tif"),
+  overwrite = TRUE
+)
 
 # ======================================================
 # 8) Avaliações
@@ -453,15 +476,36 @@ roc_plot <- ggplot(df_models %>% filter(Metrica == "ROC"),
 evaluation_panel <- tss_plot | roc_plot
 
 # -----------------------------
-# 7) MAPA DO ENSEMBLE
+# 7) MAPA DO ENSEMBLE (SEM geom_spatraster)
 # -----------------------------
+# recorte opcional (se quiser manter o mesmo enquadramento)
+target_ext <- terra::ext(-120, -30, -60, 30)
+
+ens_crop <- tryCatch(terra::crop(ensemble_raster_single, target_ext), error = function(e) NULL)
+use_r <- ens_crop
+if (is.null(use_r) || !terra::hasValues(use_r)) {
+  message("⚠️ Crop vazio. Vou plotar com a extensão real do raster.")
+  use_r <- ensemble_raster_single
+}
+
+ens_df <- as.data.frame(use_r, xy = TRUE, na.rm = TRUE)
+colnames(ens_df)[3] <- "Adequabilidade"
+
+# limites
+if (!is.null(ens_crop) && terra::hasValues(ens_crop)) {
+  xlim_use <- c(-120, -30); ylim_use <- c(-60, 30)
+} else {
+  e <- terra::ext(use_r)
+  xlim_use <- c(e$xmin, e$xmax); ylim_use <- c(e$ymin, e$ymax)
+}
+
 suitability_map <- ggplot() +
-  geom_spatraster(data = ensemble_raster_single) +
+  geom_raster(data = ens_df, aes(x = x, y = y, fill = Adequabilidade)) +
   geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.2) +
   geom_point(data = pres_coords, aes(x = lon, y = lat),
              color = "red", size = 1, alpha = 0.6) +
   scale_fill_viridis_c(option = "plasma", name = "Adequabilidade") +
-  coord_sf(xlim = c(-120, -30), ylim = c(-60, 30)) +
+  coord_sf(xlim = xlim_use, ylim = ylim_use, expand = FALSE) +
   theme_minimal() +
   labs(title = "Mapa de Adequabilidade do Habitat – Ensemble") +
   theme(plot.title = element_text(face = "bold", hjust = 0.5))
@@ -528,19 +572,173 @@ make_var_panel_pa <- function(r, varname, pres_coords, pa_pts, countries, import
 # -----------------------------
 # 10) PAINEL DAS VARIÁVEIS (4 layers)
 # -----------------------------
-var_panels <- list()
-for (i in seq_len(terra::nlyr(env_obj))) {
-  vname <- names(env_obj)[i]
-  var_panels[[vname]] <- make_var_panel_pa(env_obj[[i]], vname, pres_coords, pa_pts, countries, importance_df)
+# ======================================================
+# PAINEL DAS VARIÁVEIS (MAPA + Distribuição Presença x PA)
+# sem geom_spatraster (evita erro spatSample)
+# ======================================================
+
+make_var_panel <- function(r, varname, coords_df, pa_df, imp_df) {
+
+  # --- Importância no título ---
+  imp_val <- imp_df %>% dplyr::filter(var == varname) %>% dplyr::pull(importance)
+  imp_txt <- ifelse(length(imp_val) > 0, sprintf(" | Imp: %.3f", imp_val[1]), " | Imp: NA")
+
+  # --- 1) MAPA (raster -> data.frame xy -> geom_raster) ---
+  rr <- terra::rast(r)
+
+  # (opcional) recorte para a mesma janela de análise, deixa leve
+  rr_crop <- tryCatch(terra::crop(rr, terra::ext(-120, -30, -60, 30)), error = function(e) NULL)
+  rr_use <- rr_crop
+  if (is.null(rr_use) || !terra::hasValues(rr_use)) rr_use <- rr
+
+  r_df <- as.data.frame(rr_use, xy = TRUE, na.rm = TRUE)
+  colnames(r_df)[3] <- "val"
+
+  map <- ggplot() +
+    geom_raster(data = r_df, aes(x = x, y = y, fill = val)) +
+    scale_fill_viridis_c(option = "viridis", name = varname) +
+    coord_sf(expand = FALSE) +
+    theme_minimal() +
+    labs(title = paste0(varname, imp_txt))
+
+  # --- 2) DISTRIBUIÇÃO Presença x PA ---
+  pres_vals <- terra::extract(rr, coords_df[, c("x","y")])[,2]
+  pa_vals   <- terra::extract(rr, pa_df[, c("x","y")])[,2]
+
+  df <- data.frame(
+    Valor = c(pres_vals, pa_vals),
+    Grupo = c(rep("Presença", length(pres_vals)),
+              rep("Pseudo-ausência", length(pa_vals)))
+  ) %>%
+    dplyr::filter(is.finite(Valor), !is.na(Valor))
+
+  dist <- ggplot(df, aes(x = Grupo, y = Valor, fill = Grupo)) +
+    geom_violin(alpha = 0.35, trim = TRUE, color = NA) +
+    geom_boxplot(width = 0.25, outlier.size = 1) +
+    geom_jitter(width = 0.12, size = 0.6, alpha = 0.5) +
+    theme_minimal() +
+    labs(title = paste("Distribuição –", varname), x = "", y = "") +
+    theme(legend.position = "none")
+
+  map | dist
 }
 
-variables_grid_side <- wrap_plots(var_panels, ncol = 2) +
+# ------------------------------------------------------
+# Construir os 4 painéis (um por variável) e juntar
+# ------------------------------------------------------
+# ======================================================
+# PAINEL DAS VARIÁVEIS (MAPA + Distribuição Presença x PA)
+# DEFINITIVO: converte coordenadas para SpatVector
+# ======================================================
+
+# helper: transforma qualquer objeto de coords em data.frame com x,y
+as_xy_df <- function(obj) {
+  df <- as.data.frame(obj)
+
+  # 1) nomes esperados
+  if (all(c("x","y") %in% names(df))) {
+    out <- df[, c("x","y"), drop = FALSE]
+    return(out)
+  }
+  if (all(c("lon","lat") %in% names(df))) {
+    out <- df[, c("lon","lat"), drop = FALSE]
+    names(out) <- c("x","y")
+    return(out)
+  }
+  if (all(c("longitude","latitude") %in% names(df))) {
+    out <- df[, c("longitude","latitude"), drop = FALSE]
+    names(out) <- c("x","y")
+    return(out)
+  }
+
+  # 2) fallback: pegar as 2 primeiras colunas numéricas
+  num_cols <- which(sapply(df, is.numeric))
+  if (length(num_cols) >= 2) {
+    out <- df[, num_cols[1:2], drop = FALSE]
+    names(out) <- c("x","y")
+    warning("Coordenadas não tinham nomes padrão; usei as 2 primeiras colunas numéricas como x,y.")
+    return(out)
+  }
+
+  stop("Não consegui obter coordenadas x,y. Verifique coords/pa_pts.")
+}
+
+# helper: cria SpatVector de pontos
+as_points_vect <- function(xy_df, crs_str) {
+  xy_df <- as.data.frame(xy_df)
+  if (!all(c("x","y") %in% names(xy_df))) stop("xy_df precisa ter colunas x e y.")
+  terra::vect(xy_df, geom = c("x","y"), crs = crs_str)
+}
+
+make_var_panel <- function(r, varname, coords_obj, pa_obj, imp_df) {
+
+  rr <- terra::rast(r)
+
+  # CRS do raster (se vier vazio, assume EPSG:4326)
+  crs_r <- terra::crs(rr)
+  if (is.na(crs_r) || crs_r == "") crs_r <- "EPSG:4326"
+
+  # padronizar coords e PA e converter para SpatVector
+  coords_xy <- as_xy_df(coords_obj)
+  pa_xy     <- as_xy_df(pa_obj)
+
+  coords_v  <- as_points_vect(coords_xy, crs_r)
+  pa_v      <- as_points_vect(pa_xy, crs_r)
+
+  # --- Importância no título ---
+  imp_val <- imp_df %>% dplyr::filter(var == varname) %>% dplyr::pull(importance)
+  imp_txt <- ifelse(length(imp_val) > 0, sprintf(" | Imp: %.3f", imp_val[1]), " | Imp: NA")
+
+  # --- 1) MAPA (raster -> df -> geom_raster) ---
+  rr_crop <- tryCatch(terra::crop(rr, terra::ext(-120, -30, -60, 30)), error = function(e) NULL)
+  rr_use <- rr_crop
+  if (is.null(rr_use) || !terra::hasValues(rr_use)) rr_use <- rr
+
+  r_df <- as.data.frame(rr_use, xy = TRUE, na.rm = TRUE)
+  colnames(r_df)[3] <- "val"
+
+  map <- ggplot() +
+    geom_raster(data = r_df, aes(x = x, y = y, fill = val)) +
+    scale_fill_viridis_c(option = "viridis", name = varname) +
+    coord_sf(expand = FALSE) +
+    theme_minimal() +
+    labs(title = paste0(varname, imp_txt))
+
+  # --- 2) DISTRIBUIÇÃO Presença x PA (agora via SpatVector) ---
+  pres_vals <- terra::extract(rr, coords_v)[,2]
+  pa_vals   <- terra::extract(rr, pa_v)[,2]
+
+  df <- data.frame(
+    Valor = c(pres_vals, pa_vals),
+    Grupo = c(rep("Presença", length(pres_vals)),
+              rep("Pseudo-ausência", length(pa_vals)))
+  ) %>%
+    dplyr::filter(is.finite(Valor), !is.na(Valor))
+
+  dist <- ggplot(df, aes(x = Grupo, y = Valor, fill = Grupo)) +
+    geom_violin(alpha = 0.35, trim = TRUE, color = NA) +
+    geom_boxplot(width = 0.25, outlier.size = 1) +
+    geom_jitter(width = 0.12, size = 0.6, alpha = 0.5) +
+    theme_minimal() +
+    labs(title = paste("Distribuição –", varname), x = "", y = "") +
+    theme(legend.position = "none")
+
+  map | dist
+}
+
+# ------------------------------------------------------
+# Construir os 4 painéis (um por variável) e juntar
+# ------------------------------------------------------
+var_panels <- lapply(names(env), function(v) {
+  make_var_panel(env[[v]], v, coords, pa_pts, importance)
+})
+
+vars_panel <- wrap_plots(var_panels, ncol = 2) +
   plot_annotation(
-    title = "Variáveis Ambientais: Mapas, Importância e Presença × Pseudo-ausência",
+    title = "Variáveis Ambientais: Mapa + Distribuição (Presença × Pseudo-ausência)",
     theme = theme(plot.title = element_text(face = "bold", hjust = 0.5))
   )
 
-# -----------------------------
 # 11) PAINEL FINAL
 # -----------------------------
 final_panel <- (suitability_map | importance_plot) /
