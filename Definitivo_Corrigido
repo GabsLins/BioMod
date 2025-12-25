@@ -290,6 +290,8 @@ make_var_panel <- function(r, varname, coords_obj, pa_obj, imp_df) {
 
   map <- ggplot() +
     geom_raster(data = r_df, aes(x=x, y=y, fill=val)) +
+    geom_point(data = coords_xy, aes(x = x, y = y),
+               color = "red", size = 0.6, alpha = 0.7) +
     scale_fill_viridis_c(option="viridis", name=varname) +
     coord_sf(expand = FALSE) +
     theme_minimal() +
@@ -307,7 +309,6 @@ make_var_panel <- function(r, varname, coords_obj, pa_obj, imp_df) {
   dist <- ggplot(df, aes(Grupo, Valor, fill=Grupo)) +
     geom_violin(alpha=0.35, trim=TRUE, color=NA) +
     geom_boxplot(width=0.25, outlier.size=1) +
-    geom_jitter(width=0.12, size=0.6, alpha=0.5) +
     theme_minimal() +
     labs(title=paste("Distribuição –", varname), x="", y="") +
     theme(legend.position="none")
@@ -393,7 +394,7 @@ final_panel <- (suitability_map | importance_plot) /
     theme = theme(plot.title = element_text(size=14, face="bold"))
   )
 
-out_panel <- file.path(output_dir, "04_Painel_Final_COMPLETO_teste64.png")
+out_panel <- file.path(output_dir, "04_Painel_Final_COMPLETO_OFICIAL_teste64.png")
 cat("Salvando:", out_panel, "\n")
 
 ok <- tryCatch({
