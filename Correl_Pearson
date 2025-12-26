@@ -3,7 +3,7 @@ library(sf)
 library(dplyr)
 
 # Definir o caminho base
-base_path <- "C:/Users/tunho/Desktop/GAB/Mod"
+base_path <- "C:/Users/Administrador/Desktop/GAB/Mod"
 
 # Definir extensão da América
 ext_america <- ext(-170, -26, -56, 72)
