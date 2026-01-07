@@ -1,6 +1,6 @@
 # ======================================================
 # Vampyrum spectrum – Modelos + Ensemble + Painel FINAL
-# (SCRIPT LIMPO / TESTE64)
+# (SCRIPT LIMPO / teste65)
 # ======================================================
 
 # -----------------------------
@@ -21,9 +21,9 @@ library(viridis)
 set.seed(42)
 
 # -----------------------------
-# 1) Diretório (TESTE64)
+# 1) Diretório (teste65)
 # -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste64_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste65_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Output:", output_dir, "\n")
 
@@ -43,7 +43,7 @@ cat("Ocorrências:", nrow(coords), "\n")
 
 write.csv(
   data.frame(species="Vampyrum_spectrum", lon=coords$x, lat=coords$y),
-  file.path(output_dir, "dados_ocorrencia_teste64.csv"),
+  file.path(output_dir, "dados_ocorrencia_teste65.csv"),
   row.names = FALSE
 )
 
@@ -92,7 +92,7 @@ biomod_data <- BIOMOD_FormatingData(
   resp.name = "Vampyrum.spectrum"
 )
 
-saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste64.rds"))
+saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste65.rds"))
 
 # ======================================================
 # 5) Modelagem
@@ -117,7 +117,7 @@ models <- BIOMOD_Modeling(
   var.import = 3
 )
 
-saveRDS(models, file.path(output_dir, "models_teste64.rds"))
+saveRDS(models, file.path(output_dir, "models_teste65.rds"))
 
 # ======================================================
 # 6) Ensemble
@@ -132,17 +132,17 @@ ensemble <- BIOMOD_EnsembleModeling(
   var.import = 3
 )
 
-saveRDS(ensemble, file.path(output_dir, "ensemble_teste64.rds"))
+saveRDS(ensemble, file.path(output_dir, "ensemble_teste65.rds"))
 
 # ======================================================
 # 7) Ensemble Forecasting (RASTER ROBUSTO)
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble,
-  proj.name = "current_teste64",
+  proj.name = "current_teste65",
   new.env = env
 )
-saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste64.rds"))
+saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste65.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
@@ -162,7 +162,7 @@ if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_teste64.tif"),
+  file.path(output_dir, "ensemble_suitability_teste65.tif"),
   overwrite = TRUE
 )
 
@@ -195,7 +195,7 @@ importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   summarise(importance = mean(var.imp, na.rm = TRUE), .groups="drop") %>%
   rename(var = expl.var)
 
-write.csv(importance, file.path(output_dir, "importance_teste64.csv"), row.names = FALSE)
+write.csv(importance, file.path(output_dir, "importance_teste65.csv"), row.names = FALSE)
 
 importance_plot <- ggplot(
   importance %>% arrange(desc(importance)),
@@ -390,11 +390,11 @@ final_panel <- (suitability_map | importance_plot) /
   vars_panel /
   evaluation_panel +
   plot_annotation(
-    title="PAINEL COMPLETO – MODELAGEM DE NICHO (teste64)",
+    title="PAINEL COMPLETO – MODELAGEM DE NICHO (teste65)",
     theme = theme(plot.title = element_text(size=14, face="bold"))
   )
 
-out_panel <- file.path(output_dir, "04_Painel_Final_COMPLETO_OFICIAL_teste64.png")
+out_panel <- file.path(output_dir, "04_Painel_Final_COMPLETO_OFICIAL_teste65.png")
 cat("Salvando:", out_panel, "\n")
 
 ok <- tryCatch({
