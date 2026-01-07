@@ -1,6 +1,6 @@
 # ======================================================
 # Vampyrum spectrum – Modelos + Ensemble + Painel FINAL
-# (SCRIPT LIMPO / teste65)
+# (SCRIPT LIMPO / teste66)
 # ======================================================
 
 # -----------------------------
@@ -21,9 +21,9 @@ library(viridis)
 set.seed(42)
 
 # -----------------------------
-# 1) Diretório (teste65)
+# 1) Diretório (teste66)
 # -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste65_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste66_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Output:", output_dir, "\n")
 
@@ -43,7 +43,7 @@ cat("Ocorrências:", nrow(coords), "\n")
 
 write.csv(
   data.frame(species="Vampyrum_spectrum", lon=coords$x, lat=coords$y),
-  file.path(output_dir, "dados_ocorrencia_teste65.csv"),
+  file.path(output_dir, "dados_ocorrencia_teste66.csv"),
   row.names = FALSE
 )
 
@@ -67,13 +67,13 @@ relevo<- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif", BI
 relevo[relevo < 0] <- NA
 
 env <- raster::stack(vapor, wind, relevo, BIO7)
-names(env) <- c("Pressao_Vapor","Vento","Relevo","Variacao_Temperatura")
+names(env) <- c("Vapor_Pressure","Wind","Elevation","Temperature_Variation")
 cat("Layers:", paste(names(env), collapse = ", "), "\n")
 
 # checkpoints das layers
-raster::writeRaster(vapor, file.path(output_dir, "Pressao_Vapor.tif"), overwrite = TRUE)
-raster::writeRaster(wind,  file.path(output_dir, "Vento.tif"), overwrite = TRUE)
-raster::writeRaster(relevo,file.path(output_dir, "Relevo.tif"), overwrite = TRUE)
+raster::writeRaster(vapor, file.path(output_dir, "Vapor_Pressure.tif"), overwrite = TRUE)
+raster::writeRaster(wind,  file.path(output_dir, "Wind.tif"), overwrite = TRUE)
+raster::writeRaster(relevo,file.path(output_dir, "Elevation.tif"), overwrite = TRUE)
 raster::writeRaster(BIO7,  file.path(output_dir, "BIO7.tif"), overwrite = TRUE)
 
 # ======================================================
@@ -92,7 +92,7 @@ biomod_data <- BIOMOD_FormatingData(
   resp.name = "Vampyrum.spectrum"
 )
 
-saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste65.rds"))
+saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste66.rds"))
 
 # ======================================================
 # 5) Modelagem
@@ -117,7 +117,7 @@ models <- BIOMOD_Modeling(
   var.import = 3
 )
 
-saveRDS(models, file.path(output_dir, "models_teste65.rds"))
+saveRDS(models, file.path(output_dir, "models_teste66.rds"))
 
 # ======================================================
 # 6) Ensemble
@@ -132,17 +132,17 @@ ensemble <- BIOMOD_EnsembleModeling(
   var.import = 3
 )
 
-saveRDS(ensemble, file.path(output_dir, "ensemble_teste65.rds"))
+saveRDS(ensemble, file.path(output_dir, "ensemble_teste66.rds"))
 
 # ======================================================
 # 7) Ensemble Forecasting (RASTER ROBUSTO)
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble,
-  proj.name = "current_teste65",
+  proj.name = "current_teste66",
   new.env = env
 )
-saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste65.rds"))
+saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste66.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
@@ -162,7 +162,7 @@ if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_teste65.tif"),
+  file.path(output_dir, "ensemble_suitability_teste66.tif"),
   overwrite = TRUE
 )
 
@@ -195,7 +195,7 @@ importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   summarise(importance = mean(var.imp, na.rm = TRUE), .groups="drop") %>%
   rename(var = expl.var)
 
-write.csv(importance, file.path(output_dir, "importance_teste65.csv"), row.names = FALSE)
+write.csv(importance, file.path(output_dir, "importance_teste66.csv"), row.names = FALSE)
 
 importance_plot <- ggplot(
   importance %>% arrange(desc(importance)),
@@ -394,7 +394,7 @@ final_panel <- (suitability_map | importance_plot) /
     theme = theme(plot.title = element_text(size=14, face="bold"))
   )
 
-out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste65.png")
+out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste66.png")
 cat("Salvando:", out_panel, "\n")
 
 ok <- tryCatch({
@@ -413,3 +413,52 @@ if (!ok) {
 }
 
 cat("✅ Concluído. Arquivos em:", output_dir, "\n")
+
+# ======================================================
+# 14) SAVE PANEL PARTS (PNG + TIF)
+# ======================================================
+
+parts_dir <- file.path(output_dir, "panel_parts")
+dir.create(parts_dir, recursive = TRUE, showWarnings = FALSE)
+
+save_plot_png_tif <- function(p, filename_base, w = 12, h = 8, dpi = 300) {
+
+  # PNG
+  ggsave(
+    filename = file.path(parts_dir, paste0(filename_base, ".png")),
+    plot = p,
+    width = w, height = h, units = "in",
+    dpi = dpi, limitsize = FALSE
+  )
+
+  # TIF (GeoTIFF NÃO — é imagem tiff)
+  ggsave(
+    filename = file.path(parts_dir, paste0(filename_base, ".tif")),
+    plot = p,
+    width = w, height = h, units = "in",
+    dpi = dpi, limitsize = FALSE,
+    device = "tiff",
+    compression = "lzw"
+  )
+}
+
+# ---- Save main panel parts ----
+save_plot_png_tif(final_panel,      "00_final_panel",        w = 22, h = 24)
+save_plot_png_tif(suitability_map,  "01_ensemble_map",       w = 12, h = 8)
+save_plot_png_tif(importance_plot,  "02_variable_importance",w = 10, h = 6)
+save_plot_png_tif(vars_panel,       "03_predictor_panels",   w = 18, h = 12)
+save_plot_png_tif(tss_plot,         "04_TSS_models",         w = 10, h = 6)
+save_plot_png_tif(roc_plot,         "05_ROC_models",         w = 10, h = 6)
+save_plot_png_tif(evaluation_panel, "06_metrics_panel",      w = 16, h = 6)
+
+# ---- Save each predictor panel separately ----
+# var_panels is a list; names are predictors
+if (exists("var_panels") && length(var_panels) > 0) {
+  for (nm in names(var_panels)) {
+    safe_nm <- gsub("[^A-Za-z0-9_\\-]+", "_", nm)
+    save_plot_png_tif(var_panels[[nm]], paste0("07_predictor_", safe_nm), w = 12, h = 6)
+  }
+}
+
+cat("✅ Saved all panel parts to:", parts_dir, "\n")
+
