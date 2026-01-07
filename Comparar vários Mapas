@@ -15,7 +15,7 @@ library(ggspatial)
 # CONFIGURAR DIRETÓRIO DE SAÍDA
 # ============================
 
-output_dir <- "C:/Users/Administrador/Desktop/Gab/Mod/Resultados_Comparacao"
+output_dir <- "C:/Users/Administrador/Desktop/Gab/Mod/Resultados_teste66_ensemble/Comparacao_MAPAS"
 if(!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 cat("📁 Diretório de saída:", output_dir, "\n")
