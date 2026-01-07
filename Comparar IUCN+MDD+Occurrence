@@ -1,0 +1,241 @@
+# ======================================================
+# OCCURRENCE-DERIVED AREA (CONCAVE hull + 5 km buffer, land-clipped)
+# + Maps: Occ-area, IUCN, MDD, IUCN+MDD
+# + Save each map as .png and .tif (image TIFF)
+# Texts: English
+# ======================================================
+
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(patchwork)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(ggspatial)
+library(concaveman)
+
+# -----------------------------
+# 0) Output folder for comparison maps
+# -----------------------------
+output_dir_compare <- file.path(output_dir, "Comparison_IUCN_MDD")
+dir.create(output_dir_compare, recursive = TRUE, showWarnings = FALSE)
+cat("Comparison output:", output_dir_compare, "\n")
+
+# -----------------------------
+# 1) Study extent + basemap
+# -----------------------------
+bbox_amer <- st_bbox(c(xmin = -170, xmax = -30, ymin = -60, ymax = 80), crs = 4326)
+
+countries_amer <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf") %>%
+  st_set_crs(4326) %>%
+  st_crop(bbox_amer)
+
+# Land mask (union of countries) -> land-only clipping geometry
+land_amer <- countries_amer %>%
+  st_make_valid() %>%
+  st_union() %>%
+  st_as_sf() %>%
+  st_make_valid()
+
+# -----------------------------
+# 2) Read OCCURRENCE points
+# -----------------------------
+occ_csv <- "C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All3.csv"
+
+occ_df <- read.csv(occ_csv) %>%
+  dplyr::select(longitude, latitude) %>%
+  dplyr::rename(lon = longitude, lat = latitude) %>%
+  dplyr::filter(is.finite(lon), is.finite(lat))
+
+occ_sf <- st_as_sf(occ_df, coords = c("lon", "lat"), crs = 4326) %>%
+  st_crop(bbox_amer)
+
+cat("Occurrences loaded:", nrow(occ_sf), "\n")
+if (nrow(occ_sf) < 3) stop("Need at least 3 occurrence points to build a hull.")
+
+# -----------------------------
+# 3) Occurrence-derived area:
+#    CONCAVE hull + 5 km buffer + land-clipping
+# -----------------------------
+# Metric CRS for buffering
+occ_metric  <- st_transform(occ_sf, 3857)
+land_metric <- st_transform(land_amer, 3857)
+
+# Concave hull from POINTS (do NOT st_union here)
+# concavity: lower -> more detail; higher -> smoother
+# length_threshold (m): higher -> smoother edges
+occ_concave_m <- concaveman::concaveman(
+  occ_metric,
+  concavity = 2,            # try 1.5–3 (lower = more detail)
+  length_threshold = 20000  # try 10000–50000 (lower = more detail)
+)
+
+# Buffer 5 km
+occ_area_m <- st_buffer(st_make_valid(occ_concave_m), dist = 5000) %>%
+  st_make_valid()
+
+# Clip to land (avoid ocean polygons)
+occ_area_land_m <- st_intersection(occ_area_m, land_metric) %>%
+  st_make_valid()
+
+# Back to WGS84
+occ_area_land <- st_transform(occ_area_land_m, 4326)
+
+if (length(occ_area_land) == 0) stop("Occurrence area became empty after land clipping. Check CRS/extent.")
+
+# -----------------------------
+# 4) Read IUCN polygon (filter species)
+# -----------------------------
+iucn_file <- "C:/Users/Administrador/Desktop/Gab/Mod/MAMMALS_TERRESTRIAL_ONLY/MAMMALS_TERRESTRIAL_ONLY.shp"
+cat("Reading IUCN shapefile...\n")
+mammals <- st_read(iucn_file, quiet = TRUE)
+
+iucn_vampyrum <- mammals %>%
+  dplyr::filter(sci_name == "Vampyrum spectrum", presence == 1, origin == 1) %>%
+  st_make_valid() %>%
+  st_transform(4326) %>%
+  st_crop(bbox_amer)
+
+if (nrow(iucn_vampyrum) == 0) stop("IUCN filter returned 0 features for 'Vampyrum spectrum'. Check field names/filters.")
+
+# -----------------------------
+# 5) Read MDD polygon
+# -----------------------------
+mdd_file <- "C:/Users/Administrador/Desktop/Gab/Mod/Vampyrum_MOL/vampyrum/Vampyrum-spectrum_MDD2020/data/Vampyrum_spectrum.shp"
+cat("Reading MDD shapefile...\n")
+mdd_vampyrum <- st_read(mdd_file, quiet = TRUE) %>%
+  st_make_valid() %>%
+  st_transform(4326) %>%
+  st_crop(bbox_amer)
+
+if (nrow(mdd_vampyrum) == 0) stop("MDD shapefile returned 0 features after crop. Check file path/geometry.")
+
+# -----------------------------
+# 6) Helper: save plot as PNG + TIF (image TIFF)
+# -----------------------------
+save_png_tif <- function(plot_obj, filename_base, w = 14, h = 10, dpi = 300) {
+  png_path <- file.path(output_dir_compare, paste0(filename_base, ".png"))
+  tif_path <- file.path(output_dir_compare, paste0(filename_base, ".tif"))
+
+  ggsave(png_path, plot = plot_obj, width = w, height = h, units = "in", dpi = dpi, limitsize = FALSE)
+  ggsave(tif_path, plot = plot_obj, width = w, height = h, units = "in",
+         dpi = dpi, limitsize = FALSE, device = "tiff", compression = "lzw")
+
+  cat("Saved:", basename(png_path), "and", basename(tif_path), "\n")
+}
+
+# -----------------------------
+# 7) Map 0: Occurrence-derived land-clipped area + points
+# -----------------------------
+map_occ_area <- ggplot() +
+  geom_sf(data = countries_amer, fill = "gray95", color = "gray70", linewidth = 0.2) +
+  geom_sf(data = occ_area_land, fill = "deepskyblue3", alpha = 0.18, color = "deepskyblue4", linewidth = 0.9) +
+  geom_sf(data = occ_sf, color = "black", size = 1.2, alpha = 0.85) +
+  coord_sf(xlim = c(-120, -30), ylim = c(-60, 30), expand = FALSE) +
+  annotation_north_arrow(location = "tr", which_north = "true") +
+  annotation_scale(location = "bl") +
+  labs(
+    title = "Occurrence-derived Area (Concave hull + 5 km buffer, land-clipped)",
+    subtitle = "Concave hull around occurrence points, buffered by 5 km, clipped to land",
+    caption = "Blue: land-clipped buffered concave hull | Black: occurrences"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    plot.caption = element_text(hjust = 0.5)
+  )
+
+# -----------------------------
+# 8) Map 1: IUCN + Occurrences (+ occurrence-derived area)
+# -----------------------------
+map_iucn <- ggplot() +
+  geom_sf(data = countries_amer, fill = "gray95", color = "gray70", linewidth = 0.2) +
+  geom_sf(data = iucn_vampyrum, fill = "red", alpha = 0.25, color = "darkred", linewidth = 0.6) +
+  geom_sf(data = occ_area_land, fill = "deepskyblue3", alpha = 0.10, color = "deepskyblue4", linewidth = 0.6) +
+  geom_sf(data = occ_sf, color = "black", size = 1.2, alpha = 0.85) +
+  coord_sf(xlim = c(-120, -30), ylim = c(-60, 30), expand = FALSE) +
+  annotation_north_arrow(location = "tr", which_north = "true") +
+  annotation_scale(location = "bl") +
+  labs(
+    title = "Vampyrum spectrum – IUCN Range vs Occurrences",
+    subtitle = "IUCN polygon overlaid with occurrences and occurrence-derived area",
+    caption = "Red: IUCN range | Blue: occurrence-derived area | Black: occurrences"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    plot.caption = element_text(hjust = 0.5)
+  )
+
+# -----------------------------
+# 9) Map 2: MDD + Occurrences (+ occurrence-derived area)
+# -----------------------------
+map_mdd <- ggplot() +
+  geom_sf(data = countries_amer, fill = "gray95", color = "gray70", linewidth = 0.2) +
+  geom_sf(data = mdd_vampyrum, fill = "purple", alpha = 0.25, color = "darkviolet", linewidth = 0.6) +
+  geom_sf(data = occ_area_land, fill = "deepskyblue3", alpha = 0.10, color = "deepskyblue4", linewidth = 0.6) +
+  geom_sf(data = occ_sf, color = "black", size = 1.2, alpha = 0.85) +
+  coord_sf(xlim = c(-120, -30), ylim = c(-60, 30), expand = FALSE) +
+  annotation_north_arrow(location = "tr", which_north = "true") +
+  annotation_scale(location = "bl") +
+  labs(
+    title = "Vampyrum spectrum – MDD Range vs Occurrences",
+    subtitle = "MDD polygon overlaid with occurrences and occurrence-derived area",
+    caption = "Purple: MDD range | Blue: occurrence-derived area | Black: occurrences"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    plot.caption = element_text(hjust = 0.5)
+  )
+
+# -----------------------------
+# 10) Map 3: IUCN + MDD + Occurrences (+ occurrence-derived area)
+# -----------------------------
+map_both <- ggplot() +
+  geom_sf(data = countries_amer, fill = "gray95", color = "gray70", linewidth = 0.2) +
+  geom_sf(data = iucn_vampyrum, fill = "red", alpha = 0.18, color = "darkred", linewidth = 0.5) +
+  geom_sf(data = mdd_vampyrum, fill = "purple", alpha = 0.18, color = "darkviolet", linewidth = 0.5) +
+  geom_sf(data = occ_area_land, fill = "deepskyblue3", alpha = 0.10, color = "deepskyblue4", linewidth = 0.6) +
+  geom_sf(data = occ_sf, color = "black", size = 1.2, alpha = 0.85) +
+  coord_sf(xlim = c(-120, -30), ylim = c(-60, 30), expand = FALSE) +
+  annotation_north_arrow(location = "tr", which_north = "true") +
+  annotation_scale(location = "bl") +
+  labs(
+    title = "Vampyrum spectrum – IUCN vs MDD (with Occurrences)",
+    subtitle = "Comparison of polygon ranges with occurrence-derived area",
+    caption = "Red: IUCN | Purple: MDD | Blue: occurrence-derived area | Black: occurrences"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    plot.caption = element_text(hjust = 0.5)
+  )
+
+# -----------------------------
+# 11) Panel (all maps together)
+# -----------------------------
+panel_compare <- (map_occ_area | map_iucn) / (map_mdd | map_both) +
+  plot_annotation(
+    title = "Range Comparison: IUCN vs MDD (Vampyrum spectrum)",
+    subtitle = "Including occurrence-derived area (concave hull + 5 km buffer, land-clipped)",
+    theme = theme(
+      plot.title = element_text(face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(hjust = 0.5)
+    )
+  )
+
+# -----------------------------
+# 12) Save (PNG + TIF)
+# -----------------------------
+save_png_tif(map_occ_area, "00_OCC_area_5km_landclipped_CONCAVE", w = 14, h = 10)
+save_png_tif(map_iucn,     "01_IUCN_occurrences_CONCAVE",         w = 14, h = 10)
+save_png_tif(map_mdd,      "02_MDD_occurrences_CONCAVE",          w = 14, h = 10)
+save_png_tif(map_both,     "03_IUCN_MDD_occurrences_CONCAVE",     w = 14, h = 10)
+save_png_tif(panel_compare,"04_PANEL_IUCN_MDD_OCC_CONCAVE",       w = 18, h = 14)
+
+cat("✅ Comparison maps exported to:", output_dir_compare, "\n")
