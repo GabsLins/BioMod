@@ -207,7 +207,7 @@ importance_plot <- ggplot(
   coord_flip() +
   scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
   theme_minimal() +
-  labs(title="Importância das Variáveis (Ensemble)", x="", y="Importância") +
+  labs(title="Variable Importance (Ensemble)", x="", y="Importance") +
   theme(plot.title = element_text(face="bold", hjust=0.5))
 
 # ======================================================
@@ -301,16 +301,16 @@ make_var_panel <- function(r, varname, coords_obj, pa_obj, imp_df) {
   pa_vals   <- terra::extract(rr, pa_v)[,2]
 
   df <- data.frame(
-    Valor = c(pres_vals, pa_vals),
-    Grupo = c(rep("Presença", length(pres_vals)),
-              rep("Pseudo-ausência", length(pa_vals)))
-  ) %>% dplyr::filter(is.finite(Valor), !is.na(Valor))
+    Value = c(pres_vals, pa_vals),
+    Group = c(rep("Presence", length(pres_vals)),
+              rep("Pseudo-absence", length(pa_vals)))
+  ) %>% dplyr::filter(is.finite(Value), !is.na(Value))
 
-  dist <- ggplot(df, aes(Grupo, Valor, fill=Grupo)) +
+  dist <- ggplot(df, aes(Group, Value, fill=Group)) +
     geom_violin(alpha=0.35, trim=TRUE, color=NA) +
     geom_boxplot(width=0.25, outlier.size=1) +
     theme_minimal() +
-    labs(title=paste("Distribuição –", varname), x="", y="") +
+    labs(title=paste("Distribution –", varname), x="", y="") +
     theme(legend.position="none")
 
   map | dist
@@ -322,7 +322,7 @@ var_panels <- lapply(names(env), function(v) {
 
 vars_panel <- wrap_plots(var_panels, ncol=2) +
   plot_annotation(
-    title="Variáveis Ambientais: Mapa + Distribuição (Presença × Pseudo-ausência)",
+    title="Environmental Predictors: Map + Distribution (Presence × Pseudo-absence)",
     theme = theme(plot.title = element_text(face="bold", hjust=0.5))
   )
 
@@ -339,7 +339,7 @@ use_r <- ens_crop
 if (is.null(use_r) || !terra::hasValues(use_r)) use_r <- ensemble_raster_single
 
 ens_df <- as.data.frame(use_r, xy=TRUE, na.rm=TRUE)
-colnames(ens_df)[3] <- "Adequabilidade"
+colnames(ens_df)[3] <- "Suitability"
 
 if (!is.null(ens_crop) && terra::hasValues(ens_crop)) {
   xlim_use <- c(-120, -30); ylim_use <- c(-60, 30)
@@ -349,13 +349,13 @@ if (!is.null(ens_crop) && terra::hasValues(ens_crop)) {
 }
 
 suitability_map <- ggplot() +
-  geom_raster(data = ens_df, aes(x=x, y=y, fill=Adequabilidade)) +
+  geom_raster(data = ens_df, aes(x=x, y=y, fill=Suitability)) +
   geom_sf(data = countries, fill=NA, color="black", linewidth=0.2) +
   geom_point(data = pres_coords, aes(x=lon, y=lat), color="red", size=1, alpha=0.6) +
-  scale_fill_viridis_c(option="plasma", name="Adequabilidade") +
+  scale_fill_viridis_c(option="plasma", name="Suitability") +
   coord_sf(xlim=xlim_use, ylim=ylim_use, expand=FALSE) +
   theme_minimal() +
-  labs(title="Mapa de Adequabilidade do Habitat – Ensemble") +
+  labs(title="Habitat Suitability Map – Ensemble") +
   theme(plot.title = element_text(face="bold", hjust=0.5))
 
 plot_metric <- function(metric, lim, ens_val) {
@@ -373,7 +373,7 @@ plot_metric <- function(metric, lim, ens_val) {
     p <- p +
       geom_hline(yintercept=ens_val, color="blue", linewidth=1.1) +
       annotate("text", x=Inf, y=ens_val,
-               label=sprintf("Ensemble: %.3f", ens_val),
+               label = sprintf("Ensemble = %.3f", ens_val),
                hjust=1.05, vjust=-0.4, color="blue", size=3.5)
   }
   p
@@ -390,11 +390,11 @@ final_panel <- (suitability_map | importance_plot) /
   vars_panel /
   evaluation_panel +
   plot_annotation(
-    title="PAINEL COMPLETO – MODELAGEM DE NICHO (teste65)",
+    title="title = PANEL – Ecological Niche Modeling",
     theme = theme(plot.title = element_text(size=14, face="bold"))
   )
 
-out_panel <- file.path(output_dir, "04_Painel_Final_COMPLETO_OFICIAL_teste65.png")
+out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste65.png")
 cat("Salvando:", out_panel, "\n")
 
 ok <- tryCatch({
