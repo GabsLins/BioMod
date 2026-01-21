@@ -1,0 +1,45 @@
+install.packages("devtools")
+library(devtools)
+install_github("andrefaa/ENMTML",force=T)
+library(ENMTML)
+##################  rodando a modelegam ##############
+
+library(sp)
+library(PROJ)
+library(rgdal)
+library(rgeos)
+library(remotes)
+library(devtools)
+library(rlang)
+library(ENMTML)
+# Script corrigido para rodar ENMTML -----------------------------------------
+# Caminhos (use apenas estes; NÃO redefina depois)
+d_occ <- "C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All4.csv"
+d_env <- "C:/Users/Administrador/Desktop/Gab/Mod/Preditores"
+d_out <- "C:/Users/Administrador/Desktop/Gab/Mod/Resultados_teste68_ENMTML"
+
+ENMTML(
+  pred_dir   = d_env,
+  proj_dir   = NULL,
+  occ_file   = d_occ,
+  result_dir = d_out,
+  sp         = "species",
+  x          = "long",   # longitude
+  y          = "lat",    # latitude
+  min_occ    = 10,
+  thin_occ   = NULL,
+  eval_occ   = NULL,
+  colin_var  = c(method = 'PCA'),
+  imp_var    = FALSE,
+  sp_accessible_area = c(method='MASK', filepath="C:/Users/Administrador/Desktop/Gab/Mod/mask_america_extent.tif"),
+  pres_abs_ratio     = 1, ### Aqui regula a quantidade de PA, sendo 0,5 a mesma proporção de presença e 1 sendo o dobro
+  pseudoabs_method   = c(method = 'GEO_CONST', width="50"),
+  part       = c(method = 'BLOCK'),
+  save_part  = TRUE,
+  algorithm  = c("RDF","MXS","SVM","BIO","GAM","GLM"),
+  cores      = 4,
+  thr        = c(type = "JACCARD"),
+  ensemble   = c(method = "MEAN"),
+  msdm = c(method='OBR'),
+  extrapolation = FALSE
+)
