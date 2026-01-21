@@ -1,9 +1,3 @@
-install.packages("devtools")
-library(devtools)
-install_github("andrefaa/ENMTML",force=T)
-library(ENMTML)
-##################  rodando a modelegam ##############
-
 library(sp)
 library(PROJ)
 library(rgdal)
@@ -12,8 +6,10 @@ library(remotes)
 library(devtools)
 library(rlang)
 library(ENMTML)
+
 # Script corrigido para rodar ENMTML -----------------------------------------
 # Caminhos (use apenas estes; NÃO redefina depois)
+
 d_occ <- "C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All4.csv"
 d_env <- "C:/Users/Administrador/Desktop/Gab/Mod/Preditores"
 d_out <- "C:/Users/Administrador/Desktop/Gab/Mod/Resultados_teste68_ENMTML"
