@@ -1,6 +1,6 @@
 # ======================================================
 # Vampyrum spectrum – Modelos + Ensemble + Painel FINAL
-# (SCRIPT LIMPO / teste69)
+# (SCRIPT LIMPO / teste70)
 # ======================================================
 
 # -----------------------------
@@ -21,9 +21,9 @@ library(viridis)
 set.seed(42)
 
 # -----------------------------
-# 1) Diretório (teste69)
+# 1) Diretório (teste70)
 # -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste69_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste70_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Output:", output_dir, "\n")
 
@@ -43,7 +43,7 @@ cat("Ocorrências:", nrow(coords), "\n")
 
 write.csv(
   data.frame(species="Vampyrum_spectrum", lon=coords$x, lat=coords$y),
-  file.path(output_dir, "dados_ocorrencia_teste69.csv"),
+  file.path(output_dir, "dados_ocorrencia_teste70.csv"),
   row.names = FALSE
 )
 
@@ -77,11 +77,45 @@ raster::writeRaster(relevo,file.path(output_dir, "Elevation.tif"), overwrite = T
 raster::writeRaster(BIO7,  file.path(output_dir, "BIO7.tif"), overwrite = TRUE)
 
 # ======================================================
-# 4) BIOMOD_FormatingData (com PA)
+# 4) BIOMOD_FormatingData (com PA) + MASK via env (compatível com biomod2 antigo)
 # ======================================================
+mask_path <- "C:/Users/Administrador/Desktop/Gab/Mod/mask_america_extent.tif"
+
+# env é RasterStack -> manter tudo no pacote raster
+stopifnot(inherits(env, c("RasterStack", "RasterBrick")))
+
+mask_r <- raster::raster(mask_path)
+ref_r  <- env[[1]]
+
+# (A) CRS
+if (!raster::compareCRS(mask_r, ref_r)) {
+  message("Reprojecting mask to env CRS...")
+  mask_r <- raster::projectRaster(mask_r, ref_r, method = "ngb")
+}
+
+# (B) alinhar grade
+mask_r <- raster::resample(mask_r, ref_r, method = "ngb")
+mask_r <- raster::crop(mask_r, raster::extent(ref_r))
+
+# (C) normalizar máscara
+mask_r[mask_r <= 0] <- NA
+mask_r[mask_r >  0] <- 1
+
+# (D) aplicar máscara layer-a-layer e empilhar de volta (evita retornos estranhos)
+env_masked <- raster::stack(lapply(1:raster::nlayers(env), function(i) {
+  raster::mask(env[[i]], mask_r)
+}))
+names(env_masked) <- names(env)
+
+# checagens
+print(env_masked)
+stopifnot(inherits(env_masked, "RasterStack"))
+stopifnot(raster::nlayers(env_masked) == raster::nlayers(env))
+
+
 biomod_data <- BIOMOD_FormatingData(
   resp.var = resp.var,
-  expl.var = env,
+  expl.var = env_masked,
   resp.xy = coords,
   PA.nb.rep = 10,
   PA.nb.absences = 600,
@@ -92,7 +126,7 @@ biomod_data <- BIOMOD_FormatingData(
   resp.name = "Vampyrum.spectrum"
 )
 
-saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste69.rds"))
+saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste70.rds"))
 
 # ======================================================
 # 5) Modelagem
@@ -115,7 +149,7 @@ models <- BIOMOD_Modeling(
   var.import = 3
 )
 
-saveRDS(models, file.path(output_dir, "models_teste69.rds"))
+saveRDS(models, file.path(output_dir, "models_teste70.rds"))
 
 # ======================================================
 # 6) Ensemble
@@ -130,17 +164,17 @@ ensemble <- BIOMOD_EnsembleModeling(
   var.import = 3
 )
 
-saveRDS(ensemble, file.path(output_dir, "ensemble_teste69.rds"))
+saveRDS(ensemble, file.path(output_dir, "ensemble_teste70.rds"))
 
 # ======================================================
 # 7) Ensemble Forecasting (RASTER ROBUSTO)
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble,
-  proj.name = "current_teste69",
+  proj.name = "current_teste70",
   new.env = env
 )
-saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste69.rds"))
+saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste70.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
@@ -160,9 +194,50 @@ if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_teste69.tif"),
+  file.path(output_dir, "ensemble_suitability_teste70.tif"),
   overwrite = TRUE
 )
+
+# ======================================================
+# 7B) APPLY MASK TO ENSEMBLE RASTER (BLOCK 3)
+#     (updates ensemble_raster_single)
+# ======================================================
+
+mask_path <- "C:/Users/Administrador/Desktop/Gab/Mod/mask_america_extent.tif"
+
+# Read mask as SpatRaster
+m <- terra::rast(mask_path)
+
+# Ensure mask and ensemble have same CRS
+if (!terra::same.crs(m, ensemble_raster_single)) {
+  message("Reprojecting mask to ensemble CRS...")
+  m <- terra::project(m, ensemble_raster_single, method = "near")
+}
+
+# Align grid (resolution + extent + origin)
+m <- terra::resample(m, ensemble_raster_single, method = "near")
+
+# Normalize mask: keep cells > 0, drop 0 as NA
+m[m <= 0] <- NA
+
+# Apply mask
+ens_masked <- terra::mask(ensemble_raster_single, m)
+
+# Safety check: if mask kills all values, keep original but warn
+if (!terra::hasValues(ens_masked)) {
+  warning("Masked ensemble has no values. Keeping the original ensemble_raster_single. Check mask overlap/values.")
+} else {
+  ensemble_raster_single <- ens_masked
+  message("✔ Mask applied to ensemble_raster_single.")
+}
+
+# Save masked ensemble raster (GeoTIFF)
+terra::writeRaster(
+  ensemble_raster_single,
+  filename = file.path(output_dir, "ensemble_suitability_MASKED_teste70.tif"),
+  overwrite = TRUE
+)
+
 
 # ======================================================
 # 8) Avaliações (Modelos: validation | Ensemble: calibration)
@@ -193,7 +268,7 @@ importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   summarise(importance = mean(var.imp, na.rm = TRUE), .groups="drop") %>%
   rename(var = expl.var)
 
-write.csv(importance, file.path(output_dir, "importance_teste69.csv"), row.names = FALSE)
+write.csv(importance, file.path(output_dir, "importance_teste70.csv"), row.names = FALSE)
 
 importance_plot <- ggplot(
   importance %>% arrange(desc(importance)),
@@ -359,7 +434,7 @@ suitability_map <- ggplot() +
 plot_metric <- function(metric, lim, ens_val) {
   p <- ggplot(df_models %>% filter(Metrica==metric),
               aes(Modelo, Valor, fill=Modelo)) +
-    geom_violin(alpha=0.4, trim=TRUE, color=NA) +
+    geom_violin(alpha=0.4, trim=TRUE, color=NA) + 
     geom_boxplot(width=0.3, outlier.size=1) +
     geom_hline(yintercept=lim, linetype="dashed", color="red") +
     theme_minimal() +
@@ -392,7 +467,7 @@ final_panel <- (suitability_map | importance_plot) /
     theme = theme(plot.title = element_text(size=14, face="bold"))
   )
 
-out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste69.png")
+out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste70.png")
 cat("Salvando:", out_panel, "\n")
 
 ok <- tryCatch({
