@@ -1,6 +1,6 @@
 # ======================================================
 # Vampyrum spectrum – Modelos + Ensemble + Painel FINAL
-# (SCRIPT LIMPO / teste70)
+# (SCRIPT LIMPO / teste71)
 # ======================================================
 
 # -----------------------------
@@ -21,9 +21,9 @@ library(viridis)
 set.seed(42)
 
 # -----------------------------
-# 1) Diretório (teste70)
+# 1) Diretório (teste71)
 # -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste70_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste71_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Output:", output_dir, "\n")
 
@@ -43,7 +43,7 @@ cat("Ocorrências:", nrow(coords), "\n")
 
 write.csv(
   data.frame(species="Vampyrum_spectrum", lon=coords$x, lat=coords$y),
-  file.path(output_dir, "dados_ocorrencia_teste70.csv"),
+  file.path(output_dir, "dados_ocorrencia_teste71.csv"),
   row.names = FALSE
 )
 
@@ -126,7 +126,7 @@ biomod_data <- BIOMOD_FormatingData(
   resp.name = "Vampyrum.spectrum"
 )
 
-saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste70.rds"))
+saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste71.rds"))
 
 # ======================================================
 # 5) Modelagem
@@ -149,7 +149,7 @@ models <- BIOMOD_Modeling(
   var.import = 3
 )
 
-saveRDS(models, file.path(output_dir, "models_teste70.rds"))
+saveRDS(models, file.path(output_dir, "models_teste71.rds"))
 
 # ======================================================
 # 6) Ensemble
@@ -164,17 +164,17 @@ ensemble <- BIOMOD_EnsembleModeling(
   var.import = 3
 )
 
-saveRDS(ensemble, file.path(output_dir, "ensemble_teste70.rds"))
+saveRDS(ensemble, file.path(output_dir, "ensemble_teste71.rds"))
 
 # ======================================================
 # 7) Ensemble Forecasting (RASTER ROBUSTO)
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble,
-  proj.name = "current_teste70",
+  proj.name = "current_teste71",
   new.env = env
 )
-saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste70.rds"))
+saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste71.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
@@ -194,7 +194,7 @@ if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_teste70.tif"),
+  file.path(output_dir, "ensemble_suitability_teste71.tif"),
   overwrite = TRUE
 )
 
@@ -234,9 +234,104 @@ if (!terra::hasValues(ens_masked)) {
 # Save masked ensemble raster (GeoTIFF)
 terra::writeRaster(
   ensemble_raster_single,
-  filename = file.path(output_dir, "ensemble_suitability_MASKED_teste70.tif"),
+  filename = file.path(output_dir, "ensemble_suitability_MASKED_teste71.tif"),
   overwrite = TRUE
 )
+
+# ======================================================
+# 7C) BINARY ENSEMBLE MAP (MASKED) + SAVE PNG + GeoTIFF
+#     Using ensemble cutoff (TSS or ROC) from get_evaluations(ensemble)
+# ======================================================
+
+# Read ensemble evaluations (EMmean)
+ev_ens <- get_evaluations(ensemble)
+
+# Helper: get cutoff for EMmean filtered by TSS or ROC
+get_ens_cutoff <- function(ev, by_metric = c("TSS","ROC")) {
+  by_metric <- match.arg(by_metric)
+
+  # In your structure, "filtered.by" indicates which metric was used for model selection
+  # and metric.eval indicates the metric of the evaluation row.
+  # The cutoff is stored in the same row.
+  # We want the row where algo == "EMmean" and metric.eval == by_metric.
+  # Prefer the matching filtered.by too (more consistent).
+  df <- ev %>%
+    dplyr::filter(algo == "EMmean", metric.eval == by_metric)
+
+  # Try to prioritize rows where filtered.by == by_metric (if exists)
+  if ("filtered.by" %in% names(df)) {
+    df2 <- df %>% dplyr::filter(filtered.by == by_metric)
+    if (nrow(df2) > 0) df <- df2
+  }
+
+  if (!("cutoff" %in% names(df)) || nrow(df) == 0) return(NA_real_)
+  as.numeric(df$cutoff[1])
+}
+
+cut_tss <- get_ens_cutoff(ev_ens, "TSS")
+cut_roc <- get_ens_cutoff(ev_ens, "ROC")
+
+cat("Ensemble cutoff (TSS):", cut_tss, "\n")
+cat("Ensemble cutoff (ROC):", cut_roc, "\n")
+
+# Ensure we use the MASKED continuous ensemble raster already produced
+ens_cont <- ensemble_raster_single  # after block 7B, this should be masked
+
+# Save continuous masked map as PNG too (optional but useful)
+ens_cont_df <- as.data.frame(ens_cont, xy = TRUE, na.rm = TRUE)
+colnames(ens_cont_df)[3] <- "Suitability"
+
+p_cont_masked <- ggplot() +
+  geom_raster(data = ens_cont_df, aes(x = x, y = y, fill = Suitability)) +
+  scale_fill_viridis_c(option = "plasma", name = "Suitability") +
+  coord_sf(expand = FALSE) +
+  theme_minimal() +
+  labs(title = "Ensemble Suitability (Masked)") +
+  theme(plot.title = element_text(face="bold", hjust=0.5))
+
+ggsave(
+  filename = file.path(output_dir, "ensemble_suitability_MASKED_teste71.png"),
+  plot = p_cont_masked, width = 10, height = 7, units = "in", dpi = 300
+)
+
+# --- Function to build binary raster and save (GeoTIFF + PNG)
+save_binary_map <- function(cutoff_value, suffix) {
+
+  if (!is.finite(cutoff_value)) {
+    warning("Cutoff is NA/invalid for ", suffix, ". Skipping binary map.")
+    return(invisible(NULL))
+  }
+
+  # Binary: 1 if >= cutoff, 0 otherwise; keep NA where masked
+  r_bin <- ens_cont >= cutoff_value
+  r_bin <- terra::ifel(is.na(ens_cont), NA, r_bin)  # preserve NA mask
+  r_bin <- terra::ifel(r_bin, 1, 0)
+
+  # Save GeoTIFF (real raster)
+  tif_out <- file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste71.tif"))
+  terra::writeRaster(r_bin, tif_out, overwrite = TRUE)
+
+  # Save PNG
+  df_bin <- as.data.frame(r_bin, xy = TRUE, na.rm = TRUE)
+  colnames(df_bin)[3] <- "Binary"
+
+  p_bin <- ggplot() +
+    geom_raster(data = df_bin, aes(x = x, y = y, fill = factor(Binary))) +
+    scale_fill_viridis_d(option = "C", name = paste0("Binary (", suffix, ")")) +
+    coord_sf(expand = FALSE) +
+    theme_minimal() +
+    labs(title = paste0("Binary Ensemble (Masked) – ", suffix, " cutoff")) +
+    theme(plot.title = element_text(face="bold", hjust=0.5))
+
+  png_out <- file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste71.png"))
+  ggsave(png_out, plot = p_bin, width = 10, height = 7, units = "in", dpi = 300)
+
+  return(list(r_bin = r_bin, p_bin = p_bin, cutoff = cutoff_value))
+}
+
+# Generate binary maps
+bin_tss <- save_binary_map(cut_tss, "TSS")
+bin_roc <- save_binary_map(cut_roc, "ROC")
 
 
 # ======================================================
@@ -268,7 +363,7 @@ importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   summarise(importance = mean(var.imp, na.rm = TRUE), .groups="drop") %>%
   rename(var = expl.var)
 
-write.csv(importance, file.path(output_dir, "importance_teste70.csv"), row.names = FALSE)
+write.csv(importance, file.path(output_dir, "importance_teste71.csv"), row.names = FALSE)
 
 importance_plot <- ggplot(
   importance %>% arrange(desc(importance)),
@@ -467,7 +562,7 @@ final_panel <- (suitability_map | importance_plot) /
     theme = theme(plot.title = element_text(size=14, face="bold"))
   )
 
-out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste70.png")
+out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste71.png")
 cat("Salvando:", out_panel, "\n")
 
 ok <- tryCatch({
