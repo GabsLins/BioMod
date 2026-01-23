@@ -1,6 +1,6 @@
 # ======================================================
 # Vampyrum spectrum – Models + Ensemble + FINAL Panel
-# (CLEAN SCRIPT / teste75)
+# (CLEAN SCRIPT / teste77)
 # ======================================================
 
 # -----------------------------
@@ -21,9 +21,9 @@ library(viridis)
 set.seed(42)
 
 # -----------------------------
-# 1) Output directory (teste75)
+# 1) Output directory (teste77)
 # -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste75_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste77_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Output:", output_dir, "\n")
 
@@ -43,7 +43,7 @@ cat("Occurrences:", nrow(coords), "\n")
 
 write.csv(
   data.frame(species="Vampyrum_spectrum", lon=coords$x, lat=coords$y),
-  file.path(output_dir, "occurrences_teste75.csv"),
+  file.path(output_dir, "occurrences_teste77.csv"),
   row.names = FALSE
 )
 
@@ -103,31 +103,6 @@ mask_r <- raster::crop(mask_r, raster::extent(ref_r))
 mask_r[mask_r <= 0] <- NA
 mask_r[mask_r >  0] <- 1
 
-# ---------- (D) Remove Antilles ONLY (2 boxes), without cropping ----------
-# Boxes are lon/lat in EPSG:4326; reproject to mask CRS if needed
-ant_boxes_ll <- list(
-  raster::extent(-86, -73, 18, 25),  # Greater Antilles + Bahamas
-  raster::extent(-73, -59, 10, 18)   # Lesser Antilles
-)
-
-make_box_poly <- function(ex_ll, target_r) {
-  # polygon in EPSG:4326
-  xy <- matrix(c(ex_ll@xmin, ex_ll@ymin,
-                 ex_ll@xmax, ex_ll@ymin,
-                 ex_ll@xmax, ex_ll@ymax,
-                 ex_ll@xmin, ex_ll@ymax,
-                 ex_ll@xmin, ex_ll@ymin), ncol=2, byrow=TRUE)
-  p  <- sp::SpatialPolygons(list(sp::Polygons(list(sp::Polygon(xy)), ID="b1")),
-                            proj4string = sp::CRS("+proj=longlat +datum=WGS84 +no_defs"))
-  # project to mask CRS
-  sp::spTransform(p, raster::crs(target_r))
-}
-
-for (ex_ll in ant_boxes_ll) {
-  poly <- make_box_poly(ex_ll, mask_r)
-  burn <- raster::rasterize(poly, mask_r, field = 1, background = NA)
-  mask_r[!is.na(burn)] <- NA
-}
 
 # ---------- (E) Exclude your custom polygon/quadrant (4 vertices) ----------
 # Given as (lat, lon) -> use (x=lon, y=lat)
@@ -149,7 +124,7 @@ burn_poly <- raster::rasterize(sp_poly, mask_r, field = 1, background = NA)
 mask_r[!is.na(burn_poly)] <- NA
 
 # Save final mask used in modeling
-raster::writeRaster(mask_r, file.path(output_dir, "mask_used_noAntilles_plusPolygon_teste75.tif"),
+raster::writeRaster(mask_r, file.path(output_dir, "mask_used_noAntilles_plusPolygon_teste77.tif"),
                     overwrite = TRUE)
 
 # (F) Apply mask to predictors
@@ -178,7 +153,7 @@ biomod_data <- BIOMOD_FormatingData(
   resp.name = "Vampyrum.spectrum"
 )
 
-saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste75.rds"))
+saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste77.rds"))
 cat("✔ BIOMOD_FormatingData done (env masked; Antilles + polygon excluded).\n")
 
 # ======================================================
@@ -202,7 +177,7 @@ models <- BIOMOD_Modeling(
   var.import = 3
 )
 
-saveRDS(models, file.path(output_dir, "models_teste75.rds"))
+saveRDS(models, file.path(output_dir, "models_teste77.rds"))
 
 # ======================================================
 # 7) Ensemble
@@ -217,7 +192,102 @@ ensemble <- BIOMOD_EnsembleModeling(
   var.import = 3
 )
 
-saveRDS(ensemble, file.path(output_dir, "ensemble_teste75.rds"))
+saveRDS(ensemble, file.path(output_dir, "ensemble_teste77.rds"))
+
+# ======================================================
+# 7B) APPLY MASK TO ENSEMBLE + NEUTRALIZE ONLY LAND IN ANTILLES POLYGON
+#     (Ocean stays NA; islands stay present)
+# ======================================================
+
+mask_path <- "C:/Users/Administrador/Desktop/Gab/Mod/mask_america_extent.tif"
+
+# --- (0) Read mask fresh (avoid invalid pointers) ---
+m0 <- terra::rast(mask_path)
+
+# --- (1) Align CRS to ensemble ---
+if (!terra::same.crs(m0, ensemble_raster_single)) {
+  message("Reprojecting mask to ensemble CRS...")
+  m0 <- terra::project(m0, ensemble_raster_single, method = "near")
+}
+
+# --- (2) Align grid to ensemble ---
+m0 <- terra::resample(m0, ensemble_raster_single, method = "near")
+
+# --- (3) Normalize mask: keep >0 (1), remove <=0 (NA) ---
+m0 <- terra::ifel(m0 > 0, 1, NA)
+
+# ------------------------------------------------------
+# (4) Build a LAND mask (so ocean becomes NA)
+#     Uses rnaturalearth polygons and rasterizes on the SAME grid
+# ------------------------------------------------------
+countries_sf <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
+countries_v  <- terra::vect(countries_sf)
+
+land <- terra::rasterize(countries_v, m0, field = 1, background = NA)
+# land: 1 on land, NA on ocean
+
+# Combine: accessible area AND land
+m <- terra::ifel(!is.na(land) & !is.na(m0), 1, NA)
+
+# ------------------------------------------------------
+# (5) Apply combined mask to ensemble (ocean already NA)
+# ------------------------------------------------------
+ens_masked <- terra::mask(ensemble_raster_single, m)
+
+if (!terra::hasValues(ens_masked)) {
+  stop("Masked ensemble has no values. Check mask_america_extent.tif overlap/CRS.")
+}
+
+# ------------------------------------------------------
+# (6) Neutralize ONLY LAND inside your Antilles polygon
+#     Points given as (lat, lon) -> here we build polygon in lon/lat
+#     and then project to raster CRS if needed
+# ------------------------------------------------------
+
+# Your 4 vertices (lat, lon):
+# 24.029, -85.469
+# 17.675, -84.658
+# 12.883, -59.768
+# 23.414, -65.544
+# -> convert to (lon, lat) matrix
+ant_ll <- rbind(
+  c(-85.469, 24.029),
+  c(-84.658, 17.675),
+  c(-59.768, 12.883),
+  c(-65.544, 23.414),
+  c(-85.469, 24.029)  # close polygon
+)
+
+ant_poly <- terra::vect(list(ant_ll), type = "polygons", crs = "EPSG:4326")
+
+# Project polygon to ensemble CRS if needed
+if (!terra::same.crs(ant_poly, ens_masked)) {
+  ant_poly <- terra::project(ant_poly, ens_masked)
+}
+
+# Rasterize polygon on SAME grid of ens_masked
+burn_ant <- terra::rasterize(ant_poly, ens_masked, field = 1, background = NA)
+
+# Identify cells to neutralize: (inside polygon) AND (land cells)
+# land is on mask grid m0; ensure land grid matches ens_masked
+land2 <- terra::resample(land, ens_masked, method = "near")
+idx_neutralize <- (!is.na(burn_ant) & !is.na(land2))
+
+# Neutralize on continuous map: set to 0 (extreme "nulo"), not NA
+ens_masked[idx_neutralize] <- 0
+
+# Update object used by plots
+ensemble_raster_single <- ens_masked
+
+# Save masked continuous ensemble
+terra::writeRaster(
+  ensemble_raster_single,
+  filename = file.path(output_dir, "ensemble_suitability_MASKED_land_noAntilles.tif"),
+  overwrite = TRUE
+)
+
+message("✔ Mask applied (land-only) + Antilles polygon neutralized on LAND only. Ocean remains NA; islands preserved.")
+
 
 # ======================================================
 # 8) Ensemble Forecasting (robust raster extraction)
@@ -225,10 +295,10 @@ saveRDS(ensemble, file.path(output_dir, "ensemble_teste75.rds"))
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble,
-  proj.name = "current_teste75",
+  proj.name = "current_teste77",
   new.env = env_masked
 )
-saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste75.rds"))
+saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste77.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
@@ -247,7 +317,7 @@ if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_MASKED_noAntilles_plusPolygon_teste75.tif"),
+  file.path(output_dir, "ensemble_suitability_MASKED_noAntilles_plusPolygon_teste77.tif"),
   overwrite = TRUE
 )
 
@@ -377,7 +447,7 @@ save_binary_map <- function(ens_cont, cutoff_value, suffix) {
 
   terra::writeRaster(
     r_bin,
-    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste75.tif")),
+    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste77.tif")),
     overwrite = TRUE
   )
 
@@ -393,7 +463,7 @@ save_binary_map <- function(ens_cont, cutoff_value, suffix) {
     theme(plot.title = element_text(face="bold", hjust=0.5))
 
   ggsave(
-    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste75.png")),
+    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste77.png")),
     plot = p_bin, width = 10, height = 7, units = "in", dpi = 300
   )
 
@@ -430,7 +500,7 @@ importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   summarise(importance = mean(var.imp, na.rm = TRUE), .groups="drop") %>%
   rename(var = expl.var)
 
-write.csv(importance, file.path(output_dir, "importance_teste75.csv"), row.names = FALSE)
+write.csv(importance, file.path(output_dir, "importance_teste77.csv"), row.names = FALSE)
 
 importance_plot <- ggplot(
   importance %>% arrange(desc(importance)),
@@ -616,7 +686,7 @@ final_panel <- (suitability_map | importance_plot) /
     theme = theme(plot.title = element_text(size=14, face="bold", hjust=0.5))
   )
 
-out_panel <- file.path(output_dir, "04_FINAL_PANEL_teste75.png")
+out_panel <- file.path(output_dir, "04_FINAL_PANEL_teste77.png")
 cat("Saving:", out_panel, "\n")
 
 ok <- tryCatch({
