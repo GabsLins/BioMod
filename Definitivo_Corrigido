@@ -98,25 +98,35 @@ mask_r <- raster::resample(mask_r, ref_r, method = "ngb")
 mask_r <- raster::crop(mask_r, raster::extent(ref_r))
 
 ## REMOVE ANTILHAS DA MÁSCARA
-# (B.1) REMOVE ANTILLES USING TWO EXTENT BOXES  << AQUI
 # ======================================================
+# (B.1) REMOVE ANTILLES USING TWO EXTENT BOXES (FIXED)
+# ======================================================
+
+# duas caixas (ajuste se quiser)
 ant_boxes <- list(
   raster::extent(-85, -73, 18, 24),  # Cuba / Bahamas / Hispaniola / Puerto Rico (parte)
   raster::extent(-73, -60, 10, 18)   # Lesser Antilles arc
 )
 
 burn_extent_to_na <- function(mask, ex) {
-  tmp <- mask
-  tmp[] <- NA
-  tmp <- raster::crop(tmp, ex)
-  tmp[] <- 1
-  raster::overlay(mask, tmp, fun = function(m, a) ifelse(!is.na(a), NA, m))
+
+  # 1) cria polígono da extent
+  ex_poly <- as(ex, "SpatialPolygons")
+
+  # 2) garante CRS do polígono igual ao raster máscara
+  sp::proj4string(ex_poly) <- raster::crs(mask)
+
+  # 3) rasteriza o polígono na MESMA grade do mask (mesma extent/res)
+  burn <- raster::rasterize(ex_poly, mask, field = 1, background = NA)
+
+  # 4) onde burn == 1, vira NA na máscara
+  mask[!is.na(burn)] <- NA
+  return(mask)
 }
 
 for (ex in ant_boxes) {
   mask_r <- burn_extent_to_na(mask_r, ex)
 }
-
 
 # (C) normalizar máscara
 mask_r[mask_r <= 0] <- NA
