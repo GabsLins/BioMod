@@ -1,6 +1,6 @@
 # ======================================================
 # Vampyrum spectrum – Modelos + Ensemble + Painel FINAL
-# (SCRIPT LIMPO / teste72)
+# (SCRIPT LIMPO / teste73)
 # ======================================================
 
 # -----------------------------
@@ -21,9 +21,9 @@ library(viridis)
 set.seed(42)
 
 # -----------------------------
-# 1) Diretório (teste72)
+# 1) Diretório (teste73)
 # -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste72_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste73_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Output:", output_dir, "\n")
 
@@ -43,7 +43,7 @@ cat("Ocorrências:", nrow(coords), "\n")
 
 write.csv(
   data.frame(species="Vampyrum_spectrum", lon=coords$x, lat=coords$y),
-  file.path(output_dir, "dados_ocorrencia_teste72.csv"),
+  file.path(output_dir, "dados_ocorrencia_teste73.csv"),
   row.names = FALSE
 )
 
@@ -77,77 +77,115 @@ raster::writeRaster(relevo,file.path(output_dir, "Elevation.tif"), overwrite = T
 raster::writeRaster(BIO7,  file.path(output_dir, "BIO7.tif"), overwrite = TRUE)
 
 # ======================================================
-# 4) BIOMOD_FormatingData (com PA) + MASK via env (compatível com biomod2 antigo)
+# 4) BIOMOD_FormatingData (with PA) + MASK via env
+#     (raster-only, compatible with older biomod2)
+#     + Remove Antilles (2 boxes)
 # ======================================================
+
 mask_path <- "C:/Users/Administrador/Desktop/Gab/Mod/mask_america_extent.tif"
 
-# env é RasterStack -> manter tudo no pacote raster
+# env must be RasterStack/RasterBrick (from raster package)
 stopifnot(inherits(env, c("RasterStack", "RasterBrick")))
 
-mask_r <- raster::raster(mask_path)
-ref_r  <- env[[1]]
+# --- Reference grid (use first predictor as reference) ---
+ref_r <- env[[1]]
 
-# (A) CRS
+# --- Read mask as RasterLayer ---
+mask_r <- raster::raster(mask_path)
+
+# (A) Match CRS
 if (!raster::compareCRS(mask_r, ref_r)) {
-  message("Reprojecting mask to env CRS...")
+  message("Reprojecting mask to env CRS ...")
   mask_r <- raster::projectRaster(mask_r, ref_r, method = "ngb")
 }
 
-# (B) alinhar grade
+# (B) Match grid (resolution/origin) and extent
 mask_r <- raster::resample(mask_r, ref_r, method = "ngb")
 mask_r <- raster::crop(mask_r, raster::extent(ref_r))
 
-## REMOVE ANTILHAS DA MÁSCARA
-# ======================================================
-# (B.1) REMOVE ANTILLES USING TWO EXTENT BOXES (FIXED)
-# ======================================================
-
-# duas caixas (ajuste se quiser)
-ant_boxes <- list(
-  raster::extent(-85, -73, 18, 24),  # Cuba / Bahamas / Hispaniola / Puerto Rico (parte)
-  raster::extent(-73, -60, 10, 18)   # Lesser Antilles arc
-)
-
-burn_extent_to_na <- function(mask, ex) {
-
-  # 1) cria polígono da extent
-  ex_poly <- as(ex, "SpatialPolygons")
-
-  # 2) garante CRS do polígono igual ao raster máscara
-  sp::proj4string(ex_poly) <- raster::crs(mask)
-
-  # 3) rasteriza o polígono na MESMA grade do mask (mesma extent/res)
-  burn <- raster::rasterize(ex_poly, mask, field = 1, background = NA)
-
-  # 4) onde burn == 1, vira NA na máscara
-  mask[!is.na(burn)] <- NA
-  return(mask)
-}
-
-for (ex in ant_boxes) {
-  mask_r <- burn_extent_to_na(mask_r, ex)
-}
-
-# (C) normalizar máscara
+# (C) Normalize mask values: keep >0 as 1, drop <=0 as NA
 mask_r[mask_r <= 0] <- NA
 mask_r[mask_r >  0] <- 1
 
-# (D) aplicar máscara layer-a-layer e empilhar de volta (evita retornos estranhos)
+# ------------------------------------------------------
+# Remove Antilles (keep other islands)
+# Burn two boxes into NA on the same grid.
+# ------------------------------------------------------
+
+ant_boxes <- list(
+  raster::extent(-86, -59, 18, 25),  # Greater Antilles + Bahamas (approx.)
+  raster::extent(-73, -59, 10, 18)   # Lesser Antilles arc (approx.)
+)
+
+# Helper to build SpatialPolygons from Extent (without CRS),
+# then assign proj4string safely as character.
+make_extent_poly <- function(ex, proj4_str) {
+  coords <- matrix(c(
+    ex@xmin, ex@ymin,
+    ex@xmax, ex@ymin,
+    ex@xmax, ex@ymax,
+    ex@xmin, ex@ymax,
+    ex@xmin, ex@ymin
+  ), ncol = 2, byrow = TRUE)
+
+  p <- sp::SpatialPolygons(list(sp::Polygons(list(sp::Polygon(coords)), ID = "1")))
+  sp::proj4string(p) <- sp::CRS(proj4_str)
+  p
+}
+
+# Get PROJ.4 string (character) from mask CRS
+# (works even when raster::crs returns S4 CRS object)
+mask_proj4 <- as.character(raster::crs(mask_r))
+if (is.na(mask_proj4) || mask_proj4 == "") {
+  stop("Mask CRS is empty/NA. Define CRS for mask_r before continuing.")
+}
+
+ant_polys <- lapply(ant_boxes, make_extent_poly, proj4_str = mask_proj4)
+
+# Combine polygons (base sp method)
+ant_poly_all <- ant_polys[[1]]
+if (length(ant_polys) > 1) {
+  for (i in 2:length(ant_polys)) ant_poly_all <- raster::bind(ant_poly_all, ant_polys[[i]])
+}
+
+# Rasterize polygons onto mask_r template
+ant_r <- raster::raster(mask_r)
+ant_r <- raster::rasterize(ant_poly_all, ant_r, field = 1, background = 0)
+
+# Burn (erase) Antilles: set mask to NA where ant_r == 1
+mask_r[ant_r == 1] <- NA
+
+# Optional checkpoint
+raster::writeRaster(mask_r, file.path(output_dir, "MASK_noAntilles.tif"),
+                    overwrite = TRUE)
+
+# ------------------------------------------------------
+# Apply mask to predictors (layer-by-layer, robust)
+# ------------------------------------------------------
 env_masked <- raster::stack(lapply(1:raster::nlayers(env), function(i) {
   raster::mask(env[[i]], mask_r)
 }))
 names(env_masked) <- names(env)
 
-# checagens
-print(env_masked)
 stopifnot(inherits(env_masked, "RasterStack"))
 stopifnot(raster::nlayers(env_masked) == raster::nlayers(env))
 
+# Optional checkpoint: save masked predictors
+for (nm in names(env_masked)) {
+  raster::writeRaster(env_masked[[nm]],
+                      filename = file.path(output_dir, paste0("ENV_MASKED_", nm, ".tif")),
+                      overwrite = TRUE)
+}
 
+# ------------------------------------------------------
+# BIOMOD_FormatingData
+# Older biomod2 expects filter.raster logical; pass TRUE
+# and provide env already masked.
+# ------------------------------------------------------
 biomod_data <- BIOMOD_FormatingData(
   resp.var = resp.var,
   expl.var = env_masked,
-  resp.xy = coords,
+  resp.xy  = coords,
   PA.nb.rep = 10,
   PA.nb.absences = 600,
   PA.strategy = "random",
@@ -157,7 +195,8 @@ biomod_data <- BIOMOD_FormatingData(
   resp.name = "Vampyrum.spectrum"
 )
 
-saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste72.rds"))
+saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste70.rds"))
+cat("✔ BIOMOD_FormatingData done. Mask applied (no Antilles). \n")
 
 # ======================================================
 # 5) Modelagem
@@ -180,7 +219,7 @@ models <- BIOMOD_Modeling(
   var.import = 3
 )
 
-saveRDS(models, file.path(output_dir, "models_teste72.rds"))
+saveRDS(models, file.path(output_dir, "models_teste73.rds"))
 
 # ======================================================
 # 6) Ensemble
@@ -195,17 +234,17 @@ ensemble <- BIOMOD_EnsembleModeling(
   var.import = 3
 )
 
-saveRDS(ensemble, file.path(output_dir, "ensemble_teste72.rds"))
+saveRDS(ensemble, file.path(output_dir, "ensemble_teste73.rds"))
 
 # ======================================================
 # 7) Ensemble Forecasting (RASTER ROBUSTO)
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble,
-  proj.name = "current_teste72",
+  proj.name = "current_teste73",
   new.env = env
 )
-saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste72.rds"))
+saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste73.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
@@ -225,7 +264,7 @@ if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_teste72.tif"),
+  file.path(output_dir, "ensemble_suitability_teste73.tif"),
   overwrite = TRUE
 )
 
@@ -233,20 +272,36 @@ terra::writeRaster(
 # 7B) APPLY MASK TO ENSEMBLE RASTER (BLOCK 3)
 #     (updates ensemble_raster_single)
 # ======================================================
+# ------------------------------------------------------
+# REMOVE ANTILLES (TERRA) USING TWO BOXES
+# Put this inside BLOCK 7B, after resample(m, ensemble_raster_single)
+# ------------------------------------------------------
 
-mask_path <- "C:/Users/Administrador/Desktop/Gab/Mod/mask_america_extent.tif"
+ant_boxes <- list(
+  terra::ext(-86, -59, 18, 25),  # Greater Antilles + Bahamas (ajuste fino se precisar)
+  terra::ext(-73, -59, 10, 18)   # Lesser Antilles arc
+)
 
-# Read mask as SpatRaster
-m <- terra::rast(mask_path)
+burn_ext_to_na_terra <- function(mask_spat, ex) {
 
-# Ensure mask and ensemble have same CRS
-if (!terra::same.crs(m, ensemble_raster_single)) {
-  message("Reprojecting mask to ensemble CRS...")
-  m <- terra::project(m, ensemble_raster_single, method = "near")
+  # polígono da extent
+  poly <- terra::as.polygons(ex)
+  terra::crs(poly) <- terra::crs(mask_spat)
+
+  # rasteriza polígono na MESMA grade do mask_spat
+  burn <- terra::rasterize(poly, mask_spat, field = 1, background = NA)
+
+  # onde burn tem valor, vira NA na máscara
+  mask_spat[!is.na(burn)] <- NA
+  mask_spat
 }
 
-# Align grid (resolution + extent + origin)
-m <- terra::resample(m, ensemble_raster_single, method = "near")
+for (ex in ant_boxes) {
+  m <- burn_ext_to_na_terra(m, ex)
+}
+
+# (opcional) checagem rápida: quantos pixels válidos sobraram?
+cat("Mask after Antilles removal -> hasValues:", terra::hasValues(m), "\n")
 
 # Normalize mask: keep cells > 0, drop 0 as NA
 m[m <= 0] <- NA
@@ -265,7 +320,7 @@ if (!terra::hasValues(ens_masked)) {
 # Save masked ensemble raster (GeoTIFF)
 terra::writeRaster(
   ensemble_raster_single,
-  filename = file.path(output_dir, "ensemble_suitability_MASKED_teste72.tif"),
+  filename = file.path(output_dir, "ensemble_suitability_MASKED_teste73.tif"),
   overwrite = TRUE
 )
 
@@ -321,7 +376,7 @@ p_cont_masked <- ggplot() +
   theme(plot.title = element_text(face="bold", hjust=0.5))
 
 ggsave(
-  filename = file.path(output_dir, "ensemble_suitability_MASKED_teste72.png"),
+  filename = file.path(output_dir, "ensemble_suitability_MASKED_teste73.png"),
   plot = p_cont_masked, width = 10, height = 7, units = "in", dpi = 300
 )
 
@@ -339,7 +394,7 @@ save_binary_map <- function(cutoff_value, suffix) {
   r_bin <- terra::ifel(r_bin, 1, 0)
 
   # Save GeoTIFF (real raster)
-  tif_out <- file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste72.tif"))
+  tif_out <- file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste73.tif"))
   terra::writeRaster(r_bin, tif_out, overwrite = TRUE)
 
   # Save PNG
@@ -354,7 +409,7 @@ save_binary_map <- function(cutoff_value, suffix) {
     labs(title = paste0("Binary Ensemble (Masked) – ", suffix, " cutoff")) +
     theme(plot.title = element_text(face="bold", hjust=0.5))
 
-  png_out <- file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste72.png"))
+  png_out <- file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste73.png"))
   ggsave(png_out, plot = p_bin, width = 10, height = 7, units = "in", dpi = 300)
 
   return(list(r_bin = r_bin, p_bin = p_bin, cutoff = cutoff_value))
@@ -394,7 +449,7 @@ importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   summarise(importance = mean(var.imp, na.rm = TRUE), .groups="drop") %>%
   rename(var = expl.var)
 
-write.csv(importance, file.path(output_dir, "importance_teste72.csv"), row.names = FALSE)
+write.csv(importance, file.path(output_dir, "importance_teste73.csv"), row.names = FALSE)
 
 importance_plot <- ggplot(
   importance %>% arrange(desc(importance)),
@@ -593,7 +648,7 @@ final_panel <- (suitability_map | importance_plot) /
     theme = theme(plot.title = element_text(size=14, face="bold"))
   )
 
-out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste72.png")
+out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste73.png")
 cat("Salvando:", out_panel, "\n")
 
 ok <- tryCatch({
