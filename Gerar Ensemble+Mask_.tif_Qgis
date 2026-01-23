@@ -1,0 +1,42 @@
+# ======================================================
+# PADRONIZAÇÃO DO ENSEMBLE PARA ESCALA 0–1
+# ======================================================
+
+ensemble_01 <- ensemble_raster_single / 1000
+
+# Garantia numérica (evita artefatos)
+ensemble_01 <- terra::clamp(ensemble_01, lower = 0, upper = 1)
+
+# Substitui o raster principal a partir daqui
+ensemble_raster_single <- ensemble_01
+
+# Salvar GeoTIFF contínuo padronizado
+terra::writeRaster(
+  ensemble_raster_single,
+  filename = file.path(output_dir, "ensemble_suitability_01_TSSbase.tif"),
+  overwrite = TRUE
+)
+
+cat("✔ Ensemble padronizado para escala 0–1\n")
+
+cut_tss_01 <- cut_tss / 1000
+cat("✔ Cutoff TSS (0–1):", cut_tss_01, "\n")
+
+
+# ======================================================
+# BINÁRIO TSS (ESCALA 0–1)
+# ======================================================
+
+ensemble_bin_TSS <- terra::ifel(
+  is.na(ensemble_raster_single),
+  NA,
+  terra::ifel(ensemble_raster_single >= cut_tss_01, 1, 0)
+)
+
+terra::writeRaster(
+  ensemble_bin_TSS,
+  filename = file.path(output_dir, "ensemble_binary_TSS_01.tif"),
+  overwrite = TRUE
+)
+
+cat("✔ Binário TSS (0–1) salvo\n")
