@@ -252,6 +252,99 @@ terra::writeRaster(
 )
 
 # ======================================================
+# 7B) APPLY MASK TO ENSEMBLE + "NEUTRALIZAR" QUADRANTE (SEM REMOVER ILHAS)
+#     - Mantém ilhas e continente visíveis
+#     - Dentro do quadrante: Suitability = 0 (contínuo) e Binário = 0
+#     - Opcional: também exclui quadrante da máscara de modelagem (NA)
+# ======================================================
+
+mask_path <- "C:/Users/Administrador/Desktop/Gab/Mod/mask_america_extent.tif"
+
+# --- (1) Lê máscara base (fresh) e alinha ao ensemble ---
+m_base <- terra::rast(mask_path)
+
+if (!terra::same.crs(m_base, ensemble_raster_single)) {
+  message("Reprojecting mask to ensemble CRS...")
+  m_base <- terra::project(m_base, ensemble_raster_single, method = "near")
+}
+m_base <- terra::resample(m_base, ensemble_raster_single, method = "near")
+
+# Normaliza: >0 fica 1, <=0 vira NA (fora da área)
+m_base <- terra::ifel(m_base > 0, 1, NA)
+
+# --- (2) Cria o polígono do quadrante (lon,lat) e projeta para CRS do raster ---
+# Seus pontos (LAT, LON) -> aqui vamos montar como (LON, LAT)
+quad_ll <- rbind(
+  c(-85.469, 24.029),
+  c(-84.658, 17.675),
+  c(-59.768, 12.883),
+  c(-65.544, 23.414),
+  c(-85.469, 24.029)  # fecha polígono
+)
+
+quad_poly_ll <- terra::vect(quad_ll, type = "polygons", crs = "EPSG:4326")
+
+# Projeta o polígono pro CRS do ensemble/máscara (se necessário)
+quad_poly <- terra::project(quad_poly_ll, m_base)
+
+# --- (3) Rasteriza o polígono NA MESMA grade do ensemble ---
+burn_quad <- terra::rasterize(quad_poly, m_base, field = 1, background = NA)
+
+# --- (4) (A) Máscara de MODELAGEM: exclui quadrante (vira NA) ---
+# Use m_model no lugar de m_base se quiser que BIOMOD/PA não usem essa área
+m_model <- m_base
+m_model <- terra::ifel(!is.na(burn_quad), NA, m_model)
+
+# (opcional) salvar a máscara de modelagem
+terra::writeRaster(
+  m_model,
+  filename = file.path(output_dir, "mask_america_minus_quadrant_MODEL.tif"),
+  overwrite = TRUE
+)
+
+# --- (5) (B) Mapa CONTÍNUO para VISUALIZAÇÃO:
+# aplica máscara base, mas no quadrante coloca 0 (não some do mapa)
+ens_cont_masked <- terra::mask(ensemble_raster_single, m_base)
+
+# Aqui está o ponto-chave: quadrante NÃO vira NA, vira 0
+ens_cont_masked <- terra::ifel(!is.na(burn_quad), 0, ens_cont_masked)
+
+# Atualiza o raster que você usa nos plots
+ensemble_raster_single <- ens_cont_masked
+
+# Salva contínuo (com quadrante em 0, visível)
+terra::writeRaster(
+  ensemble_raster_single,
+  filename = file.path(output_dir, "ensemble_suitability_MASKED_quadrantZERO_teste74.tif"),
+  overwrite = TRUE
+)
+
+message("✔ 7B ok: máscara base aplicada; quadrante neutralizado (0) sem remover ilhas.")
+
+# --- (6) Binários (TSS/ROC): quadrante automaticamente fica 0 ---
+# Importante: aqui o threshold funciona normal e o quadrante (0) nunca vira 1.
+if (exists("cut_tss") && is.finite(cut_tss)) {
+  ens_bin_tss <- terra::ifel(is.na(ensemble_raster_single), NA,
+                            terra::ifel(ensemble_raster_single >= cut_tss, 1, 0))
+  terra::writeRaster(
+    ens_bin_tss,
+    filename = file.path(output_dir, "ensemble_binary_TSS_MASKED_quadrantZERO_teste74.tif"),
+    overwrite = TRUE
+  )
+}
+
+if (exists("cut_roc") && is.finite(cut_roc)) {
+  ens_bin_roc <- terra::ifel(is.na(ensemble_raster_single), NA,
+                            terra::ifel(ensemble_raster_single >= cut_roc, 1, 0))
+  terra::writeRaster(
+    ens_bin_roc,
+    filename = file.path(output_dir, "ensemble_binary_ROC_MASKED_quadrantZERO_teste74.tif"),
+    overwrite = TRUE
+  )
+}
+
+
+# ======================================================
 # 9) Binary ensemble maps (masked) using cutoffs
 # ======================================================
 ev_ens <- get_evaluations(ensemble)
