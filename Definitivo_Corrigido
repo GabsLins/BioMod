@@ -1,6 +1,6 @@
 # ======================================================
 # Vampyrum spectrum – Models + Ensemble + FINAL Panel
-# (SCRIPT LIMPO / teste80 – versão completa e corrigida)
+# (SCRIPT LIMPO / teste81 – versão completa e corrigida)
 # ======================================================
 
 # -----------------------------
@@ -23,7 +23,7 @@ set.seed(42)
 # -----------------------------
 # 1) Output directory
 # -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste80_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste81_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Output:", output_dir, "\n")
 
@@ -43,7 +43,7 @@ cat("Occurrences:", nrow(coords), "\n")
 
 write.csv(
   data.frame(species="Vampyrum_spectrum", lon=coords$x, lat=coords$y),
-  file.path(output_dir, "occurrences_teste80.csv"),
+  file.path(output_dir, "occurrences_teste81.csv"),
   row.names = FALSE
 )
 
@@ -117,7 +117,7 @@ mask_r <- raster::crop(mask_r, raster::extent(ref_r))
 # Salva a máscara usada na modelagem
 raster::writeRaster(
   mask_r,
-  file.path(output_dir, "mask_used_MODEL_neotropico_teste80.tif"),
+  file.path(output_dir, "mask_used_MODEL_neotropico_teste81.tif"),
   overwrite = TRUE
 )
 
@@ -145,7 +145,7 @@ biomod_data <- BIOMOD_FormatingData(
   resp.name = "Vampyrum.spectrum"
 )
 
-saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste80.rds"))
+saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste81.rds"))
 cat("✔ BIOMOD_FormatingData done (env masked only by base America mask).\n")
 
 # ======================================================
@@ -155,12 +155,14 @@ myOptions <- BIOMOD_ModelingOptions(
   GBM = list(n.trees = 2000, interaction.depth = 2, shrinkage = 0.005,
              bag.fraction = 0.5, n.minobsinnode = 10),
   GLM = list(type = "simple", test = "BIC"),
-  GAM = list(k = 3)
+  GAM = list(k = 3),
+  RF = list(n.trees = 500, mtry = 2, nodesize = 20, maxnodes = 20),
+  MAXENT = list(betamultiplier = 3, features = "lq")  
 )
 
 models <- BIOMOD_Modeling(
   biomod_data,
-  models = c("GLM","GAM","GBM"),
+  models = c("GLM","GAM","GBM","RF","MAXENT"),
   bm.options = myOptions,
   CV.strategy = "block",
   CV.nb.rep = 5,
@@ -169,7 +171,7 @@ models <- BIOMOD_Modeling(
   var.import = 3
 )
 
-saveRDS(models, file.path(output_dir, "models_teste80.rds"))
+saveRDS(models, file.path(output_dir, "models_teste81.rds"))
 
 # ======================================================
 # 7) Ensemble
@@ -184,17 +186,17 @@ ensemble <- BIOMOD_EnsembleModeling(
   var.import = 3
 )
 
-saveRDS(ensemble, file.path(output_dir, "ensemble_teste80.rds"))
+saveRDS(ensemble, file.path(output_dir, "ensemble_teste81.rds"))
 
 # ======================================================
 # 8) Ensemble Forecasting (use env_masked)
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble,
-  proj.name = "current_teste80",
+  proj.name = "current_teste81",
   new.env = env_masked
 )
-saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste80.rds"))
+saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste81.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
@@ -213,7 +215,7 @@ if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_RAW_teste80.tif"),
+  file.path(output_dir, "ensemble_suitability_RAW_teste81.tif"),
   overwrite = TRUE
 )
 
@@ -253,7 +255,7 @@ ensemble_raster_single <- ens_masked
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_MASKED_quadLandZERO_teste80.tif"),
+  file.path(output_dir, "ensemble_suitability_MASKED_quadLandZERO_teste81.tif"),
   overwrite = TRUE
 )
 
@@ -297,7 +299,7 @@ save_binary_map <- function(cutoff_value, suffix) {
 
   terra::writeRaster(
     r_bin,
-    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste80.tif")),
+    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste81.tif")),
     overwrite = TRUE
   )
 
@@ -313,7 +315,7 @@ save_binary_map <- function(cutoff_value, suffix) {
     theme(plot.title = element_text(face="bold", hjust=0.5))
 
   ggsave(
-    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste80.png")),
+    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste81.png")),
     plot = p_bin, width = 10, height = 7, units = "in", dpi = 300
   )
 
@@ -350,7 +352,7 @@ importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   summarise(importance = mean(var.imp, na.rm = TRUE), .groups="drop") %>%
   rename(var = expl.var)
 
-write.csv(importance, file.path(output_dir, "importance_teste80.csv"), row.names = FALSE)
+write.csv(importance, file.path(output_dir, "importance_teste81.csv"), row.names = FALSE)
 
 importance_plot <- ggplot(
   importance %>% arrange(desc(importance)),
@@ -536,7 +538,7 @@ final_panel <- (suitability_map | importance_plot) /
     theme = theme(plot.title = element_text(size=14, face="bold", hjust=0.5))
   )
 
-out_panel <- file.path(output_dir, "04_FINAL_PANEL_teste80.png")
+out_panel <- file.path(output_dir, "04_FINAL_PANEL_teste81.png")
 cat("Saving:", out_panel, "\n")
 
 ok <- tryCatch({
