@@ -98,19 +98,24 @@ mask_r <- raster::resample(mask_r, ref_r, method = "ngb")
 mask_r <- raster::crop(mask_r, raster::extent(ref_r))
 
 ## REMOVE ANTILHAS DA MÁSCARA
+# (B.1) REMOVE ANTILLES USING TWO EXTENT BOXES  << AQUI
+# ======================================================
+ant_boxes <- list(
+  raster::extent(-85, -73, 18, 24),  # Cuba / Bahamas / Hispaniola / Puerto Rico (parte)
+  raster::extent(-73, -60, 10, 18)   # Lesser Antilles arc
+)
 
-# Cria um raster vazio no grid da máscara
-ant_r <- mask_r
-ant_r[] <- NA
+burn_extent_to_na <- function(mask, ex) {
+  tmp <- mask
+  tmp[] <- NA
+  tmp <- raster::crop(tmp, ex)
+  tmp[] <- 1
+  raster::overlay(mask, tmp, fun = function(m, a) ifelse(!is.na(a), NA, m))
+}
 
-# Preenche com 1 somente dentro do bbox das Antilhas
-ant_r <- raster::crop(ant_r, ant_ext)
-ant_r[] <- 1
-
-# Agora "queima" as Antilhas: onde ant_r == 1, vira NA
-mask_r <- raster::overlay(mask_r, ant_r, fun = function(m, a) {
-  ifelse(!is.na(a), NA, m)
-})
+for (ex in ant_boxes) {
+  mask_r <- burn_extent_to_na(mask_r, ex)
+}
 
 
 # (C) normalizar máscara
