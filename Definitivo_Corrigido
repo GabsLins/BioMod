@@ -273,41 +273,56 @@ terra::writeRaster(
 #     (updates ensemble_raster_single)
 # ======================================================
 # ------------------------------------------------------
-# REMOVE ANTILLES (TERRA) USING TWO BOXES
-# Put this inside BLOCK 7B, after resample(m, ensemble_raster_single)
+# REMOVE ANTILLES (TERRA) - ROBUST (no rasterize, no in-place)
+# Put inside BLOCK 7B, AFTER:
+#   m <- terra::rast(mask_path)
+#   m <- terra::project/resample(...)  (alignment to ensemble)
 # ------------------------------------------------------
 
+# IMPORTANT: re-read mask fresh (avoid invalid pointers)
+m <- terra::rast(mask_path)
+
+# Guarantee CRS + grid alignment to ensemble
+if (!terra::same.crs(m, ensemble_raster_single)) {
+  m <- terra::project(m, ensemble_raster_single, method = "near")
+}
+m <- terra::resample(m, ensemble_raster_single, method = "near")
+
+# Two Antilles boxes (adjust if needed)
 ant_boxes <- list(
-  terra::ext(-86, -59, 18, 25),  # Greater Antilles + Bahamas (ajuste fino se precisar)
-  terra::ext(-73, -59, 10, 18)   # Lesser Antilles arc
+  terra::ext(-86, -59, 18, 25),  # Greater Antilles + Bahamas
+  terra::ext(-73, -59, 10, 18)   # Lesser Antilles
 )
 
-burn_ext_to_na_terra <- function(mask_spat, ex) {
-
-  # polígono da extent
-  poly <- terra::as.polygons(ex)
+# Function: set to NA everything inside the box (keep outside)
+drop_box <- function(mask_spat, ex) {
+  poly <- terra::as.polygons(ex)           # SpatVector polygon
   terra::crs(poly) <- terra::crs(mask_spat)
-
-  # rasteriza polígono na MESMA grade do mask_spat
-  burn <- terra::rasterize(poly, mask_spat, field = 1, background = NA)
-
-  # onde burn tem valor, vira NA na máscara
-  mask_spat[!is.na(burn)] <- NA
-  mask_spat
+  terra::mask(mask_spat, poly, inverse = TRUE)  # keep outside polygon
 }
 
 for (ex in ant_boxes) {
-  m <- burn_ext_to_na_terra(m, ex)
+  m <- drop_box(m, ex)
 }
 
-# (opcional) checagem rápida: quantos pixels válidos sobraram?
-cat("Mask after Antilles removal -> hasValues:", terra::hasValues(m), "\n")
-
-# Normalize mask: keep cells > 0, drop 0 as NA
+# Normalize: keep >0, drop <=0
 m[m <= 0] <- NA
 
-# Apply mask
+# Apply mask to ensemble
 ens_masked <- terra::mask(ensemble_raster_single, m)
+
+if (!terra::hasValues(ens_masked)) {
+  warning("Masked ensemble has no values after Antilles removal. Keeping original ensemble.")
+} else {
+  ensemble_raster_single <- ens_masked
+  message("✔ Mask + Antilles removal applied to ensemble_raster_single.")
+}
+
+terra::writeRaster(
+  ensemble_raster_single,
+  filename = file.path(output_dir, "ensemble_suitability_MASKED_noAntilles_testeXX.tif"),
+  overwrite = TRUE
+)
 
 # Safety check: if mask kills all values, keep original but warn
 if (!terra::hasValues(ens_masked)) {
