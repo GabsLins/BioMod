@@ -1,6 +1,6 @@
 # ======================================================
 # Vampyrum spectrum – Models + Ensemble + FINAL Panel
-# (CLEAN SCRIPT / teste78)
+# (SCRIPT LIMPO / teste78 – versão completa e corrigida)
 # ======================================================
 
 # -----------------------------
@@ -21,7 +21,7 @@ library(viridis)
 set.seed(42)
 
 # -----------------------------
-# 1) Output directory (teste78)
+# 1) Output directory
 # -----------------------------
 output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste78_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
@@ -78,67 +78,41 @@ raster::writeRaster(BIO7,   file.path(output_dir, "BIO7.tif"), overwrite = TRUE)
 
 # ======================================================
 # 4) MASK + apply to env (biomod2 old-compatible)
-#     - keep all islands
-#     - neutralize only Antilles (2 boxes)
-#     - exclude custom polygon/quadrant (4 vertices)
+#     - mantém ilhas (não remove ilhas)
+#     - NÃO exclui o polígono na modelagem (para não “chapar”)
 # ======================================================
 mask_path <- "C:/Users/Administrador/Desktop/Gab/Mod/mask_america_extent.tif"
-
-stopifnot(inherits(env, c("RasterStack","RasterBrick")))
 
 mask_r <- raster::raster(mask_path)
 ref_r  <- env[[1]]
 
-# (A) CRS align
+# CRS align
 if (!raster::compareCRS(mask_r, ref_r)) {
   message("Reprojecting mask to env CRS...")
   mask_r <- raster::projectRaster(mask_r, ref_r, method = "ngb")
 }
 
-# (B) Grid align
+# Grid align
 mask_r <- raster::resample(mask_r, ref_r, method = "ngb")
 mask_r <- raster::crop(mask_r, raster::extent(ref_r))
 
-# (C) Normalize mask to {1, NA}
+# Normalize mask to {1, NA}
 mask_r[mask_r <= 0] <- NA
 mask_r[mask_r >  0] <- 1
 
-
-# ---------- (E) Exclude your custom polygon/quadrant (4 vertices) ----------
-# Given as (lat, lon) -> use (x=lon, y=lat)
-poly_df <- data.frame(
-  x = c(-85.469, -84.658, -59.768, -65.544),
-  y = c( 24.029,  17.675,  12.883,  23.414)
-)
-
-sp_poly <- sp::SpatialPolygons(
-  list(sp::Polygons(list(sp::Polygon(as.matrix(poly_df))), ID="excl_poly")),
-  proj4string = sp::CRS("+proj=longlat +datum=WGS84 +no_defs")
-)
-
-if (!raster::compareCRS(mask_r, sp_poly)) {
-  sp_poly <- sp::spTransform(sp_poly, raster::crs(mask_r))
-}
-
-burn_poly <- raster::rasterize(sp_poly, mask_r, field = 1, background = NA)
-mask_r[!is.na(burn_poly)] <- NA
-
 # Save final mask used in modeling
-raster::writeRaster(mask_r, file.path(output_dir, "mask_used_noAntilles_plusPolygon_teste78.tif"),
-                    overwrite = TRUE)
+raster::writeRaster(
+  mask_r,
+  file.path(output_dir, "mask_used_MODEL_baseAmerica_teste78.tif"),
+  overwrite = TRUE
+)
 
-# (F) Apply mask to predictors
-env_masked <- raster::stack(lapply(1:raster::nlayers(env), function(i) {
-  raster::mask(env[[i]], mask_r)
-}))
+# Apply mask to predictors
+env_masked <- raster::stack(lapply(1:raster::nlayers(env), function(i) raster::mask(env[[i]], mask_r)))
 names(env_masked) <- names(env)
-
-stopifnot(inherits(env_masked, "RasterStack"))
 
 # ======================================================
 # 5) BIOMOD_FormatingData (with PA)
-# biomod2 old: filter.raster must be logical => TRUE
-# (mask already applied in env_masked)
 # ======================================================
 biomod_data <- BIOMOD_FormatingData(
   resp.var = resp.var,
@@ -154,7 +128,7 @@ biomod_data <- BIOMOD_FormatingData(
 )
 
 saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste78.rds"))
-cat("✔ BIOMOD_FormatingData done (env masked; Antilles + polygon excluded).\n")
+cat("✔ BIOMOD_FormatingData done (env masked only by base America mask).\n")
 
 # ======================================================
 # 6) Modeling
@@ -195,128 +169,7 @@ ensemble <- BIOMOD_EnsembleModeling(
 saveRDS(ensemble, file.path(output_dir, "ensemble_teste78.rds"))
 
 # ======================================================
-# 7B) APPLY MASK TO ENSEMBLE + NEUTRALIZE SUSCEPTIBILITY
-#     ONLY ON LAND inside the "Antilles quadrilateral"
-#     (keeps islands; keeps ocean as NA)
-# ======================================================
-
-mask_path <- "C:/Users/Administrador/Desktop/Gab/Mod/mask_america_extent.tif"
-
-# --- (1) Base mask (America) on same grid/CRS as ensemble ---
-m <- terra::rast(mask_path)
-
-if (!terra::same.crs(m, ensemble_raster_single)) {
-  message("Reprojecting mask to ensemble CRS...")
-  m <- terra::project(m, ensemble_raster_single, method = "near")
-}
-m <- terra::resample(m, ensemble_raster_single, method = "near")
-
-# Normalize: keep >0, drop <=0
-m <- terra::ifel(m > 0, 1, NA)
-
-# Apply base mask (allowed area). Ocean may still be NA depending on your mask.
-ens_masked <- terra::mask(ensemble_raster_single, m)
-
-if (!terra::hasValues(ens_masked)) {
-  stop("Masked ensemble has no values. Check mask overlap/values (0/1).")
-}
-
-# --- (2) Build LAND mask (terra=1, mar=NA) from Natural Earth countries ---
-# This is the key to affect only land, not sea.
-countries_sf <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
-countries_v  <- terra::vect(countries_sf)
-
-# Rasterize land on the SAME grid as ens_masked
-land <- terra::rasterize(countries_v, ens_masked, field = 1, background = NA)
-
-# --- (3) Quadrilateral polygon in lon/lat (EPSG:4326) using your 4 points ---
-# Points are (lat, lon) given by you, so we write (lon, lat) in the matrix
-quad_ll <- rbind(
-  c(-85.469, 24.029),  # lon, lat
-  c(-84.658, 17.675),
-  c(-59.768, 12.883),
-  c(-65.544, 23.414),
-  c(-85.469, 24.029)   # close polygon
-)
-
-quad_poly_ll <- terra::vect(
-  terra::polygons(list(quad_ll)),
-  crs = "EPSG:4326"
-)
-
-# Project polygon to raster CRS (important!)
-quad_poly <- terra::project(quad_poly_ll, ens_masked)
-
-# Rasterize polygon on SAME grid
-quad_r <- terra::rasterize(quad_poly, ens_masked, field = 1, background = NA)
-
-# --- (4) Neutralize only LAND cells inside polygon: set suitability to 0 ---
-# Condition: inside polygon AND land cell exists
-idx <- !is.na(quad_r) & !is.na(land)
-
-# Set to 0 only where idx==TRUE
-ens_masked <- terra::ifel(idx, 0, ens_masked)
-
-# Update object used downstream (plots, binary, etc.)
-ensemble_raster_single <- ens_masked
-
-# Save masked+neutralized ensemble (continuous)
-terra::writeRaster(
-  ensemble_raster_single,
-  filename = file.path(output_dir, "ensemble_suitability_MASKED_landOnlyQuadNeutralized_teste78.tif"),
-  overwrite = TRUE
-)
-
-message("✔ Ensemble masked + quadrilateral neutralized ONLY on LAND (ocean preserved as NA).")
-
-
-
-# ======================================================
-# 7C)
-
-save_binary_map <- function(cutoff_value, suffix) {
-
-  if (!is.finite(cutoff_value)) {
-    warning("Cutoff is NA/invalid for ", suffix, ". Skipping binary map.")
-    return(invisible(NULL))
-  }
-
-  ens_cont <- ensemble_raster_single  # continuous already masked + neutralized
-
-  # Binary with NA preserved:
-  # - if ens_cont is NA -> NA
-  # - else if >= cutoff -> 1
-  # - else -> 0
-  r_bin <- terra::ifel(
-    is.na(ens_cont),
-    NA,
-    terra::ifel(ens_cont >= cutoff_value, 1, 0)
-  )
-
-  tif_out <- file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste78.tif"))
-  terra::writeRaster(r_bin, tif_out, overwrite = TRUE)
-
-  df_bin <- as.data.frame(r_bin, xy = TRUE, na.rm = TRUE)
-  colnames(df_bin)[3] <- "Binary"
-
-  p_bin <- ggplot() +
-    geom_raster(data = df_bin, aes(x = x, y = y, fill = factor(Binary))) +
-    scale_fill_viridis_d(option = "C", name = paste0("Binary (", suffix, ")")) +
-    coord_sf(expand = FALSE) +
-    theme_minimal() +
-    labs(title = paste0("Binary Ensemble (Masked) – ", suffix, " cutoff")) +
-    theme(plot.title = element_text(face="bold", hjust=0.5))
-
-  png_out <- file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste78.png"))
-  ggsave(png_out, plot = p_bin, width = 10, height = 7, units = "in", dpi = 300)
-
-  invisible(list(r_bin = r_bin, p_bin = p_bin, cutoff = cutoff_value))
-}
-
-
-# ======================================================
-# 8) Ensemble Forecasting (robust raster extraction)
-# IMPORTANT: use env_masked here so the projection is already restricted
+# 8) Ensemble Forecasting (use env_masked)
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble,
@@ -342,105 +195,70 @@ if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_MASKED_noAntilles_plusPolygon_teste78.tif"),
+  file.path(output_dir, "ensemble_suitability_RAW_teste78.tif"),
   overwrite = TRUE
 )
 
 # ======================================================
-# 7B) APPLY MASK TO ENSEMBLE + "NEUTRALIZAR" QUADRANTE (SEM REMOVER ILHAS)
-#     - Mantém ilhas e continente visíveis
-#     - Dentro do quadrante: Suitability = 0 (contínuo) e Binário = 0
-#     - Opcional: também exclui quadrante da máscara de modelagem (NA)
+# 8B) APPLY MASK TO ENSEMBLE + “NEUTRALIZAR” APENAS TERRA
+#     dentro do quadrilátero (sem pintar o mar)
+#     - ilhas permanecem
+#     - mar permanece NA (depende da sua máscara base)
+#     - dentro do polígono: Suitability = 0 apenas em pixels de TERRA
 # ======================================================
 
-mask_path <- "C:/Users/Administrador/Desktop/Gab/Mod/mask_america_extent.tif"
+# (1) Read & align base mask to ensemble grid
+m <- terra::rast(mask_path)
 
-# --- (1) Lê máscara base (fresh) e alinha ao ensemble ---
-m_base <- terra::rast(mask_path)
-
-if (!terra::same.crs(m_base, ensemble_raster_single)) {
-  message("Reprojecting mask to ensemble CRS...")
-  m_base <- terra::project(m_base, ensemble_raster_single, method = "near")
+if (!terra::same.crs(m, ensemble_raster_single)) {
+  m <- terra::project(m, ensemble_raster_single, method = "near")
 }
-m_base <- terra::resample(m_base, ensemble_raster_single, method = "near")
+m <- terra::resample(m, ensemble_raster_single, method = "near")
+m <- terra::ifel(m > 0, 1, NA)
 
-# Normaliza: >0 fica 1, <=0 vira NA (fora da área)
-m_base <- terra::ifel(m_base > 0, 1, NA)
+# Apply base mask (allowed area)
+ens_masked <- terra::mask(ensemble_raster_single, m)
+if (!terra::hasValues(ens_masked)) stop("Mask killed all values. Check mask overlap/values.")
 
-# --- (2) Cria o polígono do quadrante (lon,lat) e projeta para CRS do raster ---
-# Seus pontos (LAT, LON) -> aqui vamos montar como (LON, LAT)
+# (2) LAND mask (terra=1, mar=NA)
+countries_sf <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
+land <- terra::rasterize(terra::vect(countries_sf), ens_masked, field = 1, background = NA)
+
+# (3) Quadrilateral polygon (lon,lat) EPSG:4326 -> project to raster CRS
 quad_ll <- rbind(
   c(-85.469, 24.029),
   c(-84.658, 17.675),
   c(-59.768, 12.883),
   c(-65.544, 23.414),
-  c(-85.469, 24.029)  # fecha polígono
+  c(-85.469, 24.029)
 )
 
+# cria SpatVector POLYGON direto da matriz (lon/lat)
 quad_poly_ll <- terra::vect(quad_ll, type = "polygons", crs = "EPSG:4326")
 
-# Projeta o polígono pro CRS do ensemble/máscara (se necessário)
-quad_poly <- terra::project(quad_poly_ll, m_base)
+# projeta para o CRS do raster
+quad_poly <- terra::project(quad_poly_ll, ens_masked)
 
-# --- (3) Rasteriza o polígono NA MESMA grade do ensemble ---
-burn_quad <- terra::rasterize(quad_poly, m_base, field = 1, background = NA)
+# rasteriza na MESMA grade
+quad_r <- terra::rasterize(quad_poly, ens_masked, field = 1, background = NA)
 
-# --- (4) (A) Máscara de MODELAGEM: exclui quadrante (vira NA) ---
-# Use m_model no lugar de m_base se quiser que BIOMOD/PA não usem essa área
-m_model <- m_base
-m_model <- terra::ifel(!is.na(burn_quad), NA, m_model)
+# (4) ZERO only where (polygon AND land)
+idx <- !is.na(quad_r) & !is.na(land)
+ens_masked <- terra::ifel(idx, 0, ens_masked)
 
-# (opcional) salvar a máscara de modelagem
-terra::writeRaster(
-  m_model,
-  filename = file.path(output_dir, "mask_america_minus_quadrant_MODEL.tif"),
-  overwrite = TRUE
-)
+# Update object used downstream
+ensemble_raster_single <- ens_masked
 
-# --- (5) (B) Mapa CONTÍNUO para VISUALIZAÇÃO:
-# aplica máscara base, mas no quadrante coloca 0 (não some do mapa)
-ens_cont_masked <- terra::mask(ensemble_raster_single, m_base)
-
-# Aqui está o ponto-chave: quadrante NÃO vira NA, vira 0
-ens_cont_masked <- terra::ifel(!is.na(burn_quad), 0, ens_cont_masked)
-
-# Atualiza o raster que você usa nos plots
-ensemble_raster_single <- ens_cont_masked
-
-# Salva contínuo (com quadrante em 0, visível)
 terra::writeRaster(
   ensemble_raster_single,
-  filename = file.path(output_dir, "ensemble_suitability_MASKED_quadrantZERO_teste78.tif"),
+  file.path(output_dir, "ensemble_suitability_MASKED_quadLandZERO_teste78.tif"),
   overwrite = TRUE
 )
 
-message("✔ 7B ok: máscara base aplicada; quadrante neutralizado (0) sem remover ilhas.")
-
-# --- (6) Binários (TSS/ROC): quadrante automaticamente fica 0 ---
-# Importante: aqui o threshold funciona normal e o quadrante (0) nunca vira 1.
-if (exists("cut_tss") && is.finite(cut_tss)) {
-  ens_bin_tss <- terra::ifel(is.na(ensemble_raster_single), NA,
-                            terra::ifel(ensemble_raster_single >= cut_tss, 1, 0))
-  terra::writeRaster(
-    ens_bin_tss,
-    filename = file.path(output_dir, "ensemble_binary_TSS_MASKED_quadrantZERO_teste78.tif"),
-    overwrite = TRUE
-  )
-}
-
-if (exists("cut_roc") && is.finite(cut_roc)) {
-  ens_bin_roc <- terra::ifel(is.na(ensemble_raster_single), NA,
-                            terra::ifel(ensemble_raster_single >= cut_roc, 1, 0))
-  terra::writeRaster(
-    ens_bin_roc,
-    filename = file.path(output_dir, "ensemble_binary_ROC_MASKED_quadrantZERO_teste78.tif"),
-    overwrite = TRUE
-  )
-}
-
+message("✔ Ensemble masked + quadrilátero zerado SOMENTE em terra (mar não pintado).")
 
 # ======================================================
-# 9) Binary ensemble maps (masked) using cutoffs
+# 9) Cutoffs + Binary maps (com NA preservado)
 # ======================================================
 ev_ens <- get_evaluations(ensemble)
 
@@ -457,18 +275,23 @@ get_ens_cutoff <- function(ev, by_metric = c("TSS","ROC")) {
 
 cut_tss <- get_ens_cutoff(ev_ens, "TSS")
 cut_roc <- get_ens_cutoff(ev_ens, "ROC")
+
 cat("Ensemble cutoff (TSS):", cut_tss, "\n")
 cat("Ensemble cutoff (ROC):", cut_roc, "\n")
 
-save_binary_map <- function(ens_cont, cutoff_value, suffix) {
+save_binary_map <- function(cutoff_value, suffix) {
   if (!is.finite(cutoff_value)) {
     warning("Cutoff NA/invalid for ", suffix, ". Skipping.")
     return(invisible(NULL))
   }
 
-  r_bin <- ens_cont >= cutoff_value
-  r_bin <- terra::ifel(is.na(ens_cont), NA, r_bin)
-  r_bin <- terra::ifel(r_bin, 1, 0)
+  ens_cont <- ensemble_raster_single
+
+  r_bin <- terra::ifel(
+    is.na(ens_cont),
+    NA,
+    terra::ifel(ens_cont >= cutoff_value, 1, 0)
+  )
 
   terra::writeRaster(
     r_bin,
@@ -495,8 +318,8 @@ save_binary_map <- function(ens_cont, cutoff_value, suffix) {
   invisible(r_bin)
 }
 
-bin_tss <- save_binary_map(ensemble_raster_single, cut_tss, "TSS")
-bin_roc <- save_binary_map(ensemble_raster_single, cut_roc, "ROC")
+bin_tss <- save_binary_map(cut_tss, "TSS")
+bin_roc <- save_binary_map(cut_roc, "ROC")
 
 # ======================================================
 # 10) Evaluations (Models: validation | Ensemble: calibration)
@@ -518,7 +341,7 @@ ens_tss <- ifelse(length(ens_tss)>0, ens_tss[1], NA_real_)
 ens_roc <- ifelse(length(ens_roc)>0, ens_roc[1], NA_real_)
 
 # ======================================================
-# 11) Variable importance (with values)
+# 11) Variable importance
 # ======================================================
 importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   group_by(expl.var) %>%
@@ -744,13 +567,13 @@ save_plot_png_tif <- function(p, filename_base, w = 12, h = 8, dpi = 300) {
          device = "tiff", compression = "lzw")
 }
 
-save_plot_png_tif(final_panel,      "00_final_panel",        w = 22, h = 24)
-save_plot_png_tif(suitability_map,  "01_ensemble_map",       w = 12, h = 8)
-save_plot_png_tif(importance_plot,  "02_variable_importance",w = 10, h = 6)
-save_plot_png_tif(vars_panel,       "03_predictor_panels",   w = 18, h = 12)
-save_plot_png_tif(tss_plot,         "04_TSS_models",         w = 10, h = 6)
-save_plot_png_tif(roc_plot,         "05_ROC_models",         w = 10, h = 6)
-save_plot_png_tif(evaluation_panel, "06_metrics_panel",      w = 16, h = 6)
+save_plot_png_tif(final_panel,      "00_final_panel",         w = 22, h = 24)
+save_plot_png_tif(suitability_map,  "01_ensemble_map",        w = 12, h = 8)
+save_plot_png_tif(importance_plot,  "02_variable_importance", w = 10, h = 6)
+save_plot_png_tif(vars_panel,       "03_predictor_panels",    w = 18, h = 12)
+save_plot_png_tif(tss_plot,         "04_TSS_models",          w = 10, h = 6)
+save_plot_png_tif(roc_plot,         "05_ROC_models",          w = 10, h = 6)
+save_plot_png_tif(evaluation_panel, "06_metrics_panel",       w = 16, h = 6)
 
 if (exists("var_panels") && length(var_panels) > 0) {
   for (nm in names(var_panels)) {
