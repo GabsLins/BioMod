@@ -1,6 +1,6 @@
 # ======================================================
 # Vampyrum spectrum – Models + Ensemble + FINAL Panel
-# (SCRIPT LIMPO / teste78 – versão completa e corrigida)
+# (SCRIPT LIMPO / teste79 – versão completa e corrigida)
 # ======================================================
 
 # -----------------------------
@@ -23,7 +23,7 @@ set.seed(42)
 # -----------------------------
 # 1) Output directory
 # -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste78_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste79_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Output:", output_dir, "\n")
 
@@ -43,7 +43,7 @@ cat("Occurrences:", nrow(coords), "\n")
 
 write.csv(
   data.frame(species="Vampyrum_spectrum", lon=coords$x, lat=coords$y),
-  file.path(output_dir, "occurrences_teste78.csv"),
+  file.path(output_dir, "occurrences_teste79.csv"),
   row.names = FALSE
 )
 
@@ -77,39 +77,57 @@ raster::writeRaster(relevo, file.path(output_dir, "Elevation.tif"), overwrite = 
 raster::writeRaster(BIO7,   file.path(output_dir, "BIO7.tif"), overwrite = TRUE)
 
 # ======================================================
-# 4) MASK + apply to env (biomod2 old-compatible)
-#     - mantém ilhas (não remove ilhas)
-#     - NÃO exclui o polígono na modelagem (para não “chapar”)
+# 4) MASK (from NEOTROPICAL shapefile) + apply to env
+#     (biomod2 old-compatible; keeps islands)
 # ======================================================
-mask_path <- "C:/Users/Administrador/Desktop/Gab/Mod/mask_america_extent.tif"
 
-mask_r <- raster::raster(mask_path)
-ref_r  <- env[[1]]
+neotrop_shp <- "C:/Users/Administrador/Desktop/Gab/Mod/Preditores/NEOTROPICAL/NEOTROPICAL/neotropico.shp"
 
-# CRS align
-if (!raster::compareCRS(mask_r, ref_r)) {
-  message("Reprojecting mask to env CRS...")
-  mask_r <- raster::projectRaster(mask_r, ref_r, method = "ngb")
+stopifnot(inherits(env, c("RasterStack","RasterBrick")))
+ref_r <- env[[1]]   # raster de referência (grade/CRS/res)
+
+# --- (1) Lê o shapefile do Neotrópico ---
+neo_v <- terra::vect(neotrop_shp)  # SpatVector
+
+# --- (2) Garante CRS igual ao raster ref ---
+# (terra::crs(ref_r) funciona mesmo sendo raster::RasterLayer)
+ref_crs <- terra::crs(terra::rast(ref_r))
+
+if (!terra::same.crs(neo_v, ref_crs)) {
+  message("Reprojecting neotropico.shp to env CRS...")
+  neo_v <- terra::project(neo_v, ref_crs)
 }
 
-# Grid align
-mask_r <- raster::resample(mask_r, ref_r, method = "ngb")
-mask_r <- raster::crop(mask_r, raster::extent(ref_r))
+# --- (3) Rasteriza o shapefile na grade do ref_r ---
+# Convertendo ref_r para SpatRaster apenas para rasterizar com terra
+ref_t <- terra::rast(ref_r)
 
-# Normalize mask to {1, NA}
+mask_t <- terra::rasterize(neo_v, ref_t, field = 1, background = NA)
+
+# Converte de volta para RasterLayer (para biomod2 + raster::mask)
+mask_r <- raster::raster(mask_t)
+
+# Normaliza para {1, NA}
 mask_r[mask_r <= 0] <- NA
 mask_r[mask_r >  0] <- 1
 
-# Save final mask used in modeling
+# (Opcional) recorta para o extent do ref (por segurança)
+mask_r <- raster::crop(mask_r, raster::extent(ref_r))
+
+# Salva a máscara usada na modelagem
 raster::writeRaster(
   mask_r,
-  file.path(output_dir, "mask_used_MODEL_baseAmerica_teste78.tif"),
+  file.path(output_dir, "mask_used_MODEL_neotropico_teste79.tif"),
   overwrite = TRUE
 )
 
-# Apply mask to predictors
-env_masked <- raster::stack(lapply(1:raster::nlayers(env), function(i) raster::mask(env[[i]], mask_r)))
+# --- (4) Aplica máscara aos preditores (env_masked) ---
+env_masked <- raster::stack(lapply(1:raster::nlayers(env), function(i) {
+  raster::mask(env[[i]], mask_r)
+}))
 names(env_masked) <- names(env)
+
+cat("✔ Mask (neotropico.shp) aplicada aos preditores.\n")
 
 # ======================================================
 # 5) BIOMOD_FormatingData (with PA)
@@ -127,7 +145,7 @@ biomod_data <- BIOMOD_FormatingData(
   resp.name = "Vampyrum.spectrum"
 )
 
-saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste78.rds"))
+saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste79.rds"))
 cat("✔ BIOMOD_FormatingData done (env masked only by base America mask).\n")
 
 # ======================================================
@@ -151,7 +169,7 @@ models <- BIOMOD_Modeling(
   var.import = 3
 )
 
-saveRDS(models, file.path(output_dir, "models_teste78.rds"))
+saveRDS(models, file.path(output_dir, "models_teste79.rds"))
 
 # ======================================================
 # 7) Ensemble
@@ -166,17 +184,17 @@ ensemble <- BIOMOD_EnsembleModeling(
   var.import = 3
 )
 
-saveRDS(ensemble, file.path(output_dir, "ensemble_teste78.rds"))
+saveRDS(ensemble, file.path(output_dir, "ensemble_teste79.rds"))
 
 # ======================================================
 # 8) Ensemble Forecasting (use env_masked)
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble,
-  proj.name = "current_teste78",
+  proj.name = "current_teste79",
   new.env = env_masked
 )
-saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste78.rds"))
+saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste79.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
@@ -195,7 +213,7 @@ if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_RAW_teste78.tif"),
+  file.path(output_dir, "ensemble_suitability_RAW_teste79.tif"),
   overwrite = TRUE
 )
 
@@ -203,55 +221,39 @@ terra::writeRaster(
 # 8B) APPLY MASK TO ENSEMBLE + “NEUTRALIZAR” APENAS TERRA
 #     dentro do quadrilátero (sem pintar o mar)
 #     - ilhas permanecem
-#     - mar permanece NA (depende da sua máscara base)
-#     - dentro do polígono: Suitability = 0 apenas em pixels de TERRA
+#     - mar fica NA (forçado por land mask)
 # ======================================================
 
-# (1) Read & align base mask to ensemble grid
-m <- terra::rast(mask_path)
+neotrop_shp <- "C:/Users/Administrador/Desktop/Gab/Mod/Preditores/NEOTROPICAL/NEOTROPICAL/neotropico.shp"
 
-if (!terra::same.crs(m, ensemble_raster_single)) {
-  m <- terra::project(m, ensemble_raster_single, method = "near")
+# (1) Base mask do Neotrópico na mesma grade do ensemble
+neo_v <- terra::vect(neotrop_shp)
+
+if (!terra::same.crs(neo_v, ensemble_raster_single)) {
+  message("Reprojecting neotropico.shp to ensemble CRS...")
+  neo_v <- terra::project(neo_v, ensemble_raster_single)
 }
-m <- terra::resample(m, ensemble_raster_single, method = "near")
+
+m <- terra::rasterize(neo_v, ensemble_raster_single, field = 1, background = NA)
 m <- terra::ifel(m > 0, 1, NA)
 
-# Apply base mask (allowed area)
+# Aplica a máscara do Neotrópico
 ens_masked <- terra::mask(ensemble_raster_single, m)
-if (!terra::hasValues(ens_masked)) stop("Mask killed all values. Check mask overlap/values.")
+if (!terra::hasValues(ens_masked)) stop("Mask killed all values. Check neotropico.shp overlap / CRS.")
 
-# (2) LAND mask (terra=1, mar=NA)
+# (2) LAND mask (terra=1, mar=NA)  -> garante que o mar NÃO vai aparecer pintado
 countries_sf <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
 land <- terra::rasterize(terra::vect(countries_sf), ens_masked, field = 1, background = NA)
 
-# (3) Quadrilateral polygon (lon,lat) EPSG:4326 -> project to raster CRS
-quad_ll <- rbind(
-  c(-85.469, 24.029),
-  c(-84.658, 17.675),
-  c(-59.768, 12.883),
-  c(-65.544, 23.414),
-  c(-85.469, 24.029)
-)
-
-# cria SpatVector POLYGON direto da matriz (lon/lat)
-quad_poly_ll <- terra::vect(quad_ll, type = "polygons", crs = "EPSG:4326")
-
-# projeta para o CRS do raster
-quad_poly <- terra::project(quad_poly_ll, ens_masked)
-
-# rasteriza na MESMA grade
-quad_r <- terra::rasterize(quad_poly, ens_masked, field = 1, background = NA)
-
-# (4) ZERO only where (polygon AND land)
-idx <- !is.na(quad_r) & !is.na(land)
-ens_masked <- terra::ifel(idx, 0, ens_masked)
+# Força oceano = NA (inclui neotropico “marinho”, se existir)
+ens_masked <- terra::mask(ens_masked, land)
 
 # Update object used downstream
 ensemble_raster_single <- ens_masked
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_MASKED_quadLandZERO_teste78.tif"),
+  file.path(output_dir, "ensemble_suitability_MASKED_quadLandZERO_teste79.tif"),
   overwrite = TRUE
 )
 
@@ -295,7 +297,7 @@ save_binary_map <- function(cutoff_value, suffix) {
 
   terra::writeRaster(
     r_bin,
-    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste78.tif")),
+    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste79.tif")),
     overwrite = TRUE
   )
 
@@ -311,7 +313,7 @@ save_binary_map <- function(cutoff_value, suffix) {
     theme(plot.title = element_text(face="bold", hjust=0.5))
 
   ggsave(
-    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste78.png")),
+    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste79.png")),
     plot = p_bin, width = 10, height = 7, units = "in", dpi = 300
   )
 
@@ -348,7 +350,7 @@ importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   summarise(importance = mean(var.imp, na.rm = TRUE), .groups="drop") %>%
   rename(var = expl.var)
 
-write.csv(importance, file.path(output_dir, "importance_teste78.csv"), row.names = FALSE)
+write.csv(importance, file.path(output_dir, "importance_teste79.csv"), row.names = FALSE)
 
 importance_plot <- ggplot(
   importance %>% arrange(desc(importance)),
@@ -534,7 +536,7 @@ final_panel <- (suitability_map | importance_plot) /
     theme = theme(plot.title = element_text(size=14, face="bold", hjust=0.5))
   )
 
-out_panel <- file.path(output_dir, "04_FINAL_PANEL_teste78.png")
+out_panel <- file.path(output_dir, "04_FINAL_PANEL_teste79.png")
 cat("Saving:", out_panel, "\n")
 
 ok <- tryCatch({
