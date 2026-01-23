@@ -1,10 +1,10 @@
 # ======================================================
-# Vampyrum spectrum – Modelos + Ensemble + Painel FINAL
-# (SCRIPT LIMPO / teste75)
+# Vampyrum spectrum – Models + Ensemble + FINAL Panel
+# (CLEAN SCRIPT / teste75)
 # ======================================================
 
 # -----------------------------
-# 0) Pacotes
+# 0) Packages
 # -----------------------------
 library(biomod2)
 library(sp)
@@ -21,14 +21,14 @@ library(viridis)
 set.seed(42)
 
 # -----------------------------
-# 1) Diretório (teste75)
+# 1) Output directory (teste75)
 # -----------------------------
 output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste75_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Output:", output_dir, "\n")
 
 # ======================================================
-# 2) Ocorrências
+# 2) Occurrences
 # ======================================================
 occ_csv <- "C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All4.csv"
 occ <- read.csv(occ_csv)
@@ -39,16 +39,16 @@ coords <- occ %>%
   dplyr::filter(is.finite(x), is.finite(y))
 
 resp.var <- rep(1, nrow(coords))
-cat("Ocorrências:", nrow(coords), "\n")
+cat("Occurrences:", nrow(coords), "\n")
 
 write.csv(
   data.frame(species="Vampyrum_spectrum", lon=coords$x, lat=coords$y),
-  file.path(output_dir, "dados_ocorrencia_teste75.csv"),
+  file.path(output_dir, "occurrences_teste75.csv"),
   row.names = FALSE
 )
 
 # ======================================================
-# 3) Camadas ambientais (PADRONIZAÇÃO)
+# 3) Environmental layers (STANDARDIZATION)
 # ======================================================
 ext_america <- raster::extent(-170, -26, -56, 72)
 
@@ -59,10 +59,10 @@ prep_layer <- function(path, ref = NULL) {
   r
 }
 
-BIO7  <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
-vapor <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/meanvaporpressure.tif", BIO7)
-wind  <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif", BIO7)
-relevo<- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif", BIO7)
+BIO7   <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
+vapor  <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/meanvaporpressure.tif", BIO7)
+wind   <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif", BIO7)
+relevo <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif", BIO7)
 
 relevo[relevo < 0] <- NA
 
@@ -70,17 +70,101 @@ env <- raster::stack(vapor, wind, relevo, BIO7)
 names(env) <- c("Vapor_Pressure","Wind","Elevation","Temperature_Variation")
 cat("Layers:", paste(names(env), collapse = ", "), "\n")
 
-# checkpoints das layers
-raster::writeRaster(vapor, file.path(output_dir, "Vapor_Pressure.tif"), overwrite = TRUE)
-raster::writeRaster(wind,  file.path(output_dir, "Wind.tif"), overwrite = TRUE)
-raster::writeRaster(relevo,file.path(output_dir, "Elevation.tif"), overwrite = TRUE)
-raster::writeRaster(BIO7,  file.path(output_dir, "BIO7.tif"), overwrite = TRUE)
+# Checkpoints
+raster::writeRaster(vapor,  file.path(output_dir, "Vapor_Pressure.tif"), overwrite = TRUE)
+raster::writeRaster(wind,   file.path(output_dir, "Wind.tif"), overwrite = TRUE)
+raster::writeRaster(relevo, file.path(output_dir, "Elevation.tif"), overwrite = TRUE)
+raster::writeRaster(BIO7,   file.path(output_dir, "BIO7.tif"), overwrite = TRUE)
 
-# 4)  ------------------------------------------------------
-# BIOMOD_FormatingData
-# Older biomod2 expects filter.raster logical; pass TRUE
-# and provide env already masked.
-# ------------------------------------------------------
+# ======================================================
+# 4) MASK + apply to env (biomod2 old-compatible)
+#     - keep all islands
+#     - neutralize only Antilles (2 boxes)
+#     - exclude custom polygon/quadrant (4 vertices)
+# ======================================================
+mask_path <- "C:/Users/Administrador/Desktop/Gab/Mod/mask_america_extent.tif"
+
+stopifnot(inherits(env, c("RasterStack","RasterBrick")))
+
+mask_r <- raster::raster(mask_path)
+ref_r  <- env[[1]]
+
+# (A) CRS align
+if (!raster::compareCRS(mask_r, ref_r)) {
+  message("Reprojecting mask to env CRS...")
+  mask_r <- raster::projectRaster(mask_r, ref_r, method = "ngb")
+}
+
+# (B) Grid align
+mask_r <- raster::resample(mask_r, ref_r, method = "ngb")
+mask_r <- raster::crop(mask_r, raster::extent(ref_r))
+
+# (C) Normalize mask to {1, NA}
+mask_r[mask_r <= 0] <- NA
+mask_r[mask_r >  0] <- 1
+
+# ---------- (D) Remove Antilles ONLY (2 boxes), without cropping ----------
+# Boxes are lon/lat in EPSG:4326; reproject to mask CRS if needed
+ant_boxes_ll <- list(
+  raster::extent(-86, -73, 18, 25),  # Greater Antilles + Bahamas
+  raster::extent(-73, -59, 10, 18)   # Lesser Antilles
+)
+
+make_box_poly <- function(ex_ll, target_r) {
+  # polygon in EPSG:4326
+  xy <- matrix(c(ex_ll@xmin, ex_ll@ymin,
+                 ex_ll@xmax, ex_ll@ymin,
+                 ex_ll@xmax, ex_ll@ymax,
+                 ex_ll@xmin, ex_ll@ymax,
+                 ex_ll@xmin, ex_ll@ymin), ncol=2, byrow=TRUE)
+  p  <- sp::SpatialPolygons(list(sp::Polygons(list(sp::Polygon(xy)), ID="b1")),
+                            proj4string = sp::CRS("+proj=longlat +datum=WGS84 +no_defs"))
+  # project to mask CRS
+  sp::spTransform(p, raster::crs(target_r))
+}
+
+for (ex_ll in ant_boxes_ll) {
+  poly <- make_box_poly(ex_ll, mask_r)
+  burn <- raster::rasterize(poly, mask_r, field = 1, background = NA)
+  mask_r[!is.na(burn)] <- NA
+}
+
+# ---------- (E) Exclude your custom polygon/quadrant (4 vertices) ----------
+# Given as (lat, lon) -> use (x=lon, y=lat)
+poly_df <- data.frame(
+  x = c(-85.469, -84.658, -59.768, -65.544),
+  y = c( 24.029,  17.675,  12.883,  23.414)
+)
+
+sp_poly <- sp::SpatialPolygons(
+  list(sp::Polygons(list(sp::Polygon(as.matrix(poly_df))), ID="excl_poly")),
+  proj4string = sp::CRS("+proj=longlat +datum=WGS84 +no_defs")
+)
+
+if (!raster::compareCRS(mask_r, sp_poly)) {
+  sp_poly <- sp::spTransform(sp_poly, raster::crs(mask_r))
+}
+
+burn_poly <- raster::rasterize(sp_poly, mask_r, field = 1, background = NA)
+mask_r[!is.na(burn_poly)] <- NA
+
+# Save final mask used in modeling
+raster::writeRaster(mask_r, file.path(output_dir, "mask_used_noAntilles_plusPolygon_teste75.tif"),
+                    overwrite = TRUE)
+
+# (F) Apply mask to predictors
+env_masked <- raster::stack(lapply(1:raster::nlayers(env), function(i) {
+  raster::mask(env[[i]], mask_r)
+}))
+names(env_masked) <- names(env)
+
+stopifnot(inherits(env_masked, "RasterStack"))
+
+# ======================================================
+# 5) BIOMOD_FormatingData (with PA)
+# biomod2 old: filter.raster must be logical => TRUE
+# (mask already applied in env_masked)
+# ======================================================
 biomod_data <- BIOMOD_FormatingData(
   resp.var = resp.var,
   expl.var = env_masked,
@@ -95,10 +179,10 @@ biomod_data <- BIOMOD_FormatingData(
 )
 
 saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste75.rds"))
-cat("✔ BIOMOD_FormatingData done. Mask applied (no Antilles). \n")
+cat("✔ BIOMOD_FormatingData done (env masked; Antilles + polygon excluded).\n")
 
 # ======================================================
-# 5) Modelagem
+# 6) Modeling
 # ======================================================
 myOptions <- BIOMOD_ModelingOptions(
   GBM = list(n.trees = 2000, interaction.depth = 2, shrinkage = 0.005,
@@ -121,7 +205,7 @@ models <- BIOMOD_Modeling(
 saveRDS(models, file.path(output_dir, "models_teste75.rds"))
 
 # ======================================================
-# 6) Ensemble
+# 7) Ensemble
 # ======================================================
 ensemble <- BIOMOD_EnsembleModeling(
   bm.mod = models,
@@ -136,182 +220,74 @@ ensemble <- BIOMOD_EnsembleModeling(
 saveRDS(ensemble, file.path(output_dir, "ensemble_teste75.rds"))
 
 # ======================================================
-# 7) Ensemble Forecasting (RASTER ROBUSTO)
+# 8) Ensemble Forecasting (robust raster extraction)
+# IMPORTANT: use env_masked here so the projection is already restricted
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble,
   proj.name = "current_teste75",
-  new.env = env
+  new.env = env_masked
 )
 saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste75.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
-# 1) tentativa direta
+# Try terra directly
 ensemble_raster_single <- tryCatch(terra::rast(pred_obj)[[1]], error = function(e) NULL)
 
-# 2) fallback via Raster*
+# Fallback via raster::stack
 if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)) {
   rs <- tryCatch(raster::stack(pred_obj), error = function(e) NULL)
   if (!is.null(rs)) ensemble_raster_single <- terra::rast(rs)[[1]]
 }
 
-# 3) checagem final
 if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)) {
-  stop("Não consegui obter raster do ensemble com valores. Veja class/str de get_predictions(ensemble_proj).")
+  stop("Could not obtain ensemble raster with values from BIOMOD_EnsembleForecasting.")
 }
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_teste75.tif"),
+  file.path(output_dir, "ensemble_suitability_MASKED_noAntilles_plusPolygon_teste75.tif"),
   overwrite = TRUE
 )
 
 # ======================================================
-# 7B) APPLY MASK TO ENSEMBLE RASTER (BLOCK 3)
-#     (updates ensemble_raster_single)
+# 9) Binary ensemble maps (masked) using cutoffs
 # ======================================================
-# ------------------------------------------------------
-# REMOVE ANTILLES (TERRA) - ROBUST (no rasterize, no in-place)
-# Put inside BLOCK 7B, AFTER:
-#   m <- terra::rast(mask_path)
-#   m <- terra::project/resample(...)  (alignment to ensemble)
-# ------------------------------------------------------
-
-# IMPORTANT: re-read mask fresh (avoid invalid pointers)
-m <- terra::rast(mask_path)
-
-# Guarantee CRS + grid alignment to ensemble
-if (!terra::same.crs(m, ensemble_raster_single)) {
-  m <- terra::project(m, ensemble_raster_single, method = "near")
-}
-m <- terra::resample(m, ensemble_raster_single, method = "near")
-
-# Two Antilles boxes (adjust if needed)
-ant_boxes <- list(
-  terra::ext(-86, -59, 18, 25),  # Greater Antilles + Bahamas
-  terra::ext(-73, -59, 10, 18)   # Lesser Antilles
-)
-
-# Function: set to NA everything inside the box (keep outside)
-drop_box <- function(mask_spat, ex) {
-  poly <- terra::as.polygons(ex)           # SpatVector polygon
-  terra::crs(poly) <- terra::crs(mask_spat)
-  terra::mask(mask_spat, poly, inverse = TRUE)  # keep outside polygon
-}
-
-for (ex in ant_boxes) {
-  m <- drop_box(m, ex)
-}
-
-# Normalize: keep >0, drop <=0
-m[m <= 0] <- NA
-
-# Apply mask to ensemble
-ens_masked <- terra::mask(ensemble_raster_single, m)
-
-if (!terra::hasValues(ens_masked)) {
-  warning("Masked ensemble has no values after Antilles removal. Keeping original ensemble.")
-} else {
-  ensemble_raster_single <- ens_masked
-  message("✔ Mask + Antilles removal applied to ensemble_raster_single.")
-}
-
-terra::writeRaster(
-  ensemble_raster_single,
-  filename = file.path(output_dir, "ensemble_suitability_MASKED_noAntilles_testeXX.tif"),
-  overwrite = TRUE
-)
-
-# Safety check: if mask kills all values, keep original but warn
-if (!terra::hasValues(ens_masked)) {
-  warning("Masked ensemble has no values. Keeping the original ensemble_raster_single. Check mask overlap/values.")
-} else {
-  ensemble_raster_single <- ens_masked
-  message("✔ Mask applied to ensemble_raster_single.")
-}
-
-# Save masked ensemble raster (GeoTIFF)
-terra::writeRaster(
-  ensemble_raster_single,
-  filename = file.path(output_dir, "ensemble_suitability_MASKED_teste75.tif"),
-  overwrite = TRUE
-)
-
-# ======================================================
-# 7C) BINARY ENSEMBLE MAP (MASKED) + SAVE PNG + GeoTIFF
-#     Using ensemble cutoff (TSS or ROC) from get_evaluations(ensemble)
-# ======================================================
-
-# Read ensemble evaluations (EMmean)
 ev_ens <- get_evaluations(ensemble)
 
-# Helper: get cutoff for EMmean filtered by TSS or ROC
 get_ens_cutoff <- function(ev, by_metric = c("TSS","ROC")) {
   by_metric <- match.arg(by_metric)
-
-  # In your structure, "filtered.by" indicates which metric was used for model selection
-  # and metric.eval indicates the metric of the evaluation row.
-  # The cutoff is stored in the same row.
-  # We want the row where algo == "EMmean" and metric.eval == by_metric.
-  # Prefer the matching filtered.by too (more consistent).
-  df <- ev %>%
-    dplyr::filter(algo == "EMmean", metric.eval == by_metric)
-
-  # Try to prioritize rows where filtered.by == by_metric (if exists)
+  df <- ev %>% dplyr::filter(algo == "EMmean", metric.eval == by_metric)
   if ("filtered.by" %in% names(df)) {
     df2 <- df %>% dplyr::filter(filtered.by == by_metric)
     if (nrow(df2) > 0) df <- df2
   }
-
   if (!("cutoff" %in% names(df)) || nrow(df) == 0) return(NA_real_)
   as.numeric(df$cutoff[1])
 }
 
 cut_tss <- get_ens_cutoff(ev_ens, "TSS")
 cut_roc <- get_ens_cutoff(ev_ens, "ROC")
-
 cat("Ensemble cutoff (TSS):", cut_tss, "\n")
 cat("Ensemble cutoff (ROC):", cut_roc, "\n")
 
-# Ensure we use the MASKED continuous ensemble raster already produced
-ens_cont <- ensemble_raster_single  # after block 7B, this should be masked
-
-# Save continuous masked map as PNG too (optional but useful)
-ens_cont_df <- as.data.frame(ens_cont, xy = TRUE, na.rm = TRUE)
-colnames(ens_cont_df)[3] <- "Suitability"
-
-p_cont_masked <- ggplot() +
-  geom_raster(data = ens_cont_df, aes(x = x, y = y, fill = Suitability)) +
-  scale_fill_viridis_c(option = "plasma", name = "Suitability") +
-  coord_sf(expand = FALSE) +
-  theme_minimal() +
-  labs(title = "Ensemble Suitability (Masked)") +
-  theme(plot.title = element_text(face="bold", hjust=0.5))
-
-ggsave(
-  filename = file.path(output_dir, "ensemble_suitability_MASKED_teste75.png"),
-  plot = p_cont_masked, width = 10, height = 7, units = "in", dpi = 300
-)
-
-# --- Function to build binary raster and save (GeoTIFF + PNG)
-save_binary_map <- function(cutoff_value, suffix) {
-
+save_binary_map <- function(ens_cont, cutoff_value, suffix) {
   if (!is.finite(cutoff_value)) {
-    warning("Cutoff is NA/invalid for ", suffix, ". Skipping binary map.")
+    warning("Cutoff NA/invalid for ", suffix, ". Skipping.")
     return(invisible(NULL))
   }
 
-  # Binary: 1 if >= cutoff, 0 otherwise; keep NA where masked
   r_bin <- ens_cont >= cutoff_value
-  r_bin <- terra::ifel(is.na(ens_cont), NA, r_bin)  # preserve NA mask
+  r_bin <- terra::ifel(is.na(ens_cont), NA, r_bin)
   r_bin <- terra::ifel(r_bin, 1, 0)
 
-  # Save GeoTIFF (real raster)
-  tif_out <- file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste75.tif"))
-  terra::writeRaster(r_bin, tif_out, overwrite = TRUE)
+  terra::writeRaster(
+    r_bin,
+    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste75.tif")),
+    overwrite = TRUE
+  )
 
-  # Save PNG
   df_bin <- as.data.frame(r_bin, xy = TRUE, na.rm = TRUE)
   colnames(df_bin)[3] <- "Binary"
 
@@ -323,40 +299,38 @@ save_binary_map <- function(cutoff_value, suffix) {
     labs(title = paste0("Binary Ensemble (Masked) – ", suffix, " cutoff")) +
     theme(plot.title = element_text(face="bold", hjust=0.5))
 
-  png_out <- file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste75.png"))
-  ggsave(png_out, plot = p_bin, width = 10, height = 7, units = "in", dpi = 300)
+  ggsave(
+    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste75.png")),
+    plot = p_bin, width = 10, height = 7, units = "in", dpi = 300
+  )
 
-  return(list(r_bin = r_bin, p_bin = p_bin, cutoff = cutoff_value))
+  invisible(r_bin)
 }
 
-# Generate binary maps
-bin_tss <- save_binary_map(cut_tss, "TSS")
-bin_roc <- save_binary_map(cut_roc, "ROC")
-
+bin_tss <- save_binary_map(ensemble_raster_single, cut_tss, "TSS")
+bin_roc <- save_binary_map(ensemble_raster_single, cut_roc, "ROC")
 
 # ======================================================
-# 8) Avaliações (Modelos: validation | Ensemble: calibration)
+# 10) Evaluations (Models: validation | Ensemble: calibration)
 # ======================================================
 ev_models <- get_evaluations(models)
 df_models <- ev_models %>%
   dplyr::filter(metric.eval %in% c("TSS","ROC")) %>%
-  dplyr::transmute(Modelo = algo, Metrica = metric.eval, Valor = validation) %>%
-  dplyr::filter(is.finite(Valor), !is.na(Valor))
+  dplyr::transmute(Model = algo, Metric = metric.eval, Value = validation) %>%
+  dplyr::filter(is.finite(Value), !is.na(Value))
 
-# ensemble: no seu caso, validation vem NA, então usar calibration
-ev_ens <- get_evaluations(ensemble)
 df_ens <- ev_ens %>%
   dplyr::filter(algo == "EMmean", metric.eval %in% c("TSS","ROC")) %>%
-  dplyr::transmute(Metrica = metric.eval, Valor = calibration) %>%
-  dplyr::filter(is.finite(Valor), !is.na(Valor))
+  dplyr::transmute(Metric = metric.eval, Value = calibration) %>%
+  dplyr::filter(is.finite(Value), !is.na(Value))
 
-ens_tss <- df_ens %>% filter(Metrica=="TSS") %>% pull(Valor)
-ens_roc <- df_ens %>% filter(Metrica=="ROC") %>% pull(Valor)
-ens_tss <- ifelse(length(ens_tss) > 0, ens_tss[1], NA_real_)
-ens_roc <- ifelse(length(ens_roc) > 0, ens_roc[1], NA_real_)
+ens_tss <- df_ens %>% filter(Metric=="TSS") %>% pull(Value)
+ens_roc <- df_ens %>% filter(Metric=="ROC") %>% pull(Value)
+ens_tss <- ifelse(length(ens_tss)>0, ens_tss[1], NA_real_)
+ens_roc <- ifelse(length(ens_roc)>0, ens_roc[1], NA_real_)
 
 # ======================================================
-# 9) Importância das variáveis (com valores)
+# 11) Variable importance (with values)
 # ======================================================
 importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   group_by(expl.var) %>%
@@ -379,53 +353,46 @@ importance_plot <- ggplot(
   theme(plot.title = element_text(face="bold", hjust=0.5))
 
 # ======================================================
-# 10) Pseudo-ausências (ROBUSTO via @PA.table)
+# 12) Pseudo-absences (robust via @PA.table)
 # ======================================================
 rep_id <- 1
 pa_colname <- paste0("PA", rep_id)
 
-if (!("PA.table" %in% slotNames(biomod_data))) stop("biomod_data não tem PA.table.")
+if (!("PA.table" %in% slotNames(biomod_data))) stop("biomod_data has no PA.table.")
 pa_tab <- biomod_data@PA.table
-if (is.null(pa_tab) || nrow(pa_tab) == 0) stop("PA.table vazio.")
+if (is.null(pa_tab) || nrow(pa_tab) == 0) stop("PA.table is empty.")
 
 if (!is.null(colnames(pa_tab)) && (pa_colname %in% colnames(pa_tab))) {
   pa_vec <- pa_tab[, pa_colname]
 } else {
   pa_vec <- pa_tab[, 1]
-  warning("Coluna ", pa_colname, " não encontrada. Usando a primeira coluna de PA.table.")
+  warning("Column ", pa_colname, " not found. Using first PA.table column.")
 }
 
 abs_idx <- which(is.finite(pa_vec) & pa_vec == 0)
-if (length(abs_idx) == 0) stop("Não encontrei pseudo-ausências (0) na PA.table.")
+if (length(abs_idx) == 0) stop("No pseudo-absences (0) found in PA.table.")
 
 pa_pts <- biomod_data@coord[abs_idx, , drop = FALSE]
 pa_pts <- as.data.frame(pa_pts)
 colnames(pa_pts) <- c("x","y")
-cat("Pseudo-ausências (rep", rep_id, "):", nrow(pa_pts), "\n")
+cat("Pseudo-absences (rep", rep_id, "):", nrow(pa_pts), "\n")
 
 # ======================================================
-# 11) Painel por variável (SEM geom_spatraster)
+# 13) Predictor panels (no geom_spatraster)
 # ======================================================
 as_xy_df <- function(obj) {
   df <- as.data.frame(obj)
-
   if (all(c("x","y") %in% names(df))) return(df[, c("x","y"), drop=FALSE])
-  if (all(c("lon","lat") %in% names(df))) {
-    out <- df[, c("lon","lat"), drop=FALSE]; names(out) <- c("x","y"); return(out)
-  }
-  if (all(c("longitude","latitude") %in% names(df))) {
-    out <- df[, c("longitude","latitude"), drop=FALSE]; names(out) <- c("x","y"); return(out)
-  }
-
+  if (all(c("lon","lat") %in% names(df))) { out <- df[, c("lon","lat"), drop=FALSE]; names(out) <- c("x","y"); return(out) }
+  if (all(c("longitude","latitude") %in% names(df))) { out <- df[, c("longitude","latitude"), drop=FALSE]; names(out) <- c("x","y"); return(out) }
   num_cols <- which(sapply(df, is.numeric))
   if (length(num_cols) >= 2) {
     out <- df[, num_cols[1:2], drop=FALSE]
     names(out) <- c("x","y")
-    warning("Coords sem nomes padrão; usei as 2 primeiras colunas numéricas como x,y.")
+    warning("Coordinates without standard names; used first 2 numeric columns as x,y.")
     return(out)
   }
-
-  stop("Não consegui obter coordenadas x,y.")
+  stop("Could not extract x,y coordinates.")
 }
 
 as_points_vect <- function(xy_df, crs_str) {
@@ -448,7 +415,6 @@ make_var_panel <- function(r, varname, coords_obj, pa_obj, imp_df) {
   imp_val <- imp_df %>% dplyr::filter(var == varname) %>% dplyr::pull(importance)
   imp_txt <- ifelse(length(imp_val)>0, sprintf(" | Imp: %.3f", imp_val[1]), " | Imp: NA")
 
-  # mapa: converter raster -> df e plotar
   rr_crop <- tryCatch(terra::crop(rr, terra::ext(-120, -30, -60, 30)), error=function(e) NULL)
   rr_use <- rr_crop
   if (is.null(rr_use) || !terra::hasValues(rr_use)) rr_use <- rr
@@ -484,9 +450,8 @@ make_var_panel <- function(r, varname, coords_obj, pa_obj, imp_df) {
   map | dist
 }
 
-var_panels <- lapply(names(env), function(v) {
-  make_var_panel(env[[v]], v, coords, pa_pts, importance)
-})
+var_panels <- lapply(names(env_masked), function(v) make_var_panel(env_masked[[v]], v, coords, pa_pts, importance))
+names(var_panels) <- names(env_masked)
 
 vars_panel <- wrap_plots(var_panels, ncol=2) +
   plot_annotation(
@@ -495,12 +460,11 @@ vars_panel <- wrap_plots(var_panels, ncol=2) +
   )
 
 # ======================================================
-# 12) Mapas e métricas finais
+# 14) Final maps + metrics plots + FINAL PANEL
 # ======================================================
 countries <- rnaturalearth::ne_countries(scale="medium", returnclass="sf")
 pres_coords <- data.frame(lon = coords$x, lat = coords$y)
 
-# Mapa ensemble (sem geom_spatraster)
 target_ext <- terra::ext(-120, -30, -60, 30)
 ens_crop <- tryCatch(terra::crop(ensemble_raster_single, target_ext), error=function(e) NULL)
 use_r <- ens_crop
@@ -523,19 +487,19 @@ suitability_map <- ggplot() +
   scale_fill_viridis_c(option="plasma", name="Suitability") +
   coord_sf(xlim=xlim_use, ylim=ylim_use, expand=FALSE) +
   theme_minimal() +
-  labs(title="Habitat Suitability Map – Ensemble") +
+  labs(title="Habitat Suitability Map – Ensemble (Masked)") +
   theme(plot.title = element_text(face="bold", hjust=0.5))
 
 plot_metric <- function(metric, lim, ens_val) {
-  p <- ggplot(df_models %>% filter(Metrica==metric),
-              aes(Modelo, Valor, fill=Modelo)) +
-    geom_violin(alpha=0.4, trim=TRUE, color=NA) + 
+  p <- ggplot(df_models %>% filter(Metric==metric),
+              aes(Model, Value, fill=Model)) +
+    geom_violin(alpha=0.4, trim=TRUE, color=NA) +
     geom_boxplot(width=0.3, outlier.size=1) +
     geom_hline(yintercept=lim, linetype="dashed", color="red") +
     theme_minimal() +
     coord_cartesian(ylim=c(0,1)) +
     theme(legend.position="none") +
-    labs(title=metric, x="Modelo", y=metric)
+    labs(title=metric, x="Model", y=metric)
 
   if (is.finite(ens_val)) {
     p <- p +
@@ -551,66 +515,47 @@ tss_plot <- plot_metric("TSS", 0.7, ens_tss)
 roc_plot <- plot_metric("ROC", 0.8, ens_roc)
 evaluation_panel <- tss_plot | roc_plot
 
-# ======================================================
-# 13) Painel final + salvar
-# ======================================================
 final_panel <- (suitability_map | importance_plot) /
   vars_panel /
   evaluation_panel +
   plot_annotation(
-    title="title = PANEL – Ecological Niche Modeling",
-    theme = theme(plot.title = element_text(size=14, face="bold"))
+    title="FULL PANEL – Ecological Niche Modeling",
+    theme = theme(plot.title = element_text(size=14, face="bold", hjust=0.5))
   )
 
-out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste75.png")
-cat("Salvando:", out_panel, "\n")
+out_panel <- file.path(output_dir, "04_FINAL_PANEL_teste75.png")
+cat("Saving:", out_panel, "\n")
 
 ok <- tryCatch({
   ggsave(out_panel, plot = final_panel, width=22, height=24, units="in", dpi=300, limitsize=FALSE)
   TRUE
-}, error=function(e) {
-  message("ggsave falhou: ", e$message)
-  FALSE
-})
+}, error=function(e) FALSE)
 
 if (!ok) {
-  message("Fallback png() ...")
   png(out_panel, width=22, height=24, units="in", res=300)
   print(final_panel)
   dev.off()
 }
 
-cat("✅ Concluído. Arquivos em:", output_dir, "\n")
+cat("✅ Done. Files in:", output_dir, "\n")
 
 # ======================================================
-# 14) SAVE PANEL PARTS (PNG + TIF)
+# 15) SAVE PANEL PARTS (PNG + TIF)
 # ======================================================
-
 parts_dir <- file.path(output_dir, "panel_parts")
 dir.create(parts_dir, recursive = TRUE, showWarnings = FALSE)
 
 save_plot_png_tif <- function(p, filename_base, w = 12, h = 8, dpi = 300) {
+  ggsave(file.path(parts_dir, paste0(filename_base, ".png")),
+         plot = p, width = w, height = h, units = "in",
+         dpi = dpi, limitsize = FALSE)
 
-  # PNG
-  ggsave(
-    filename = file.path(parts_dir, paste0(filename_base, ".png")),
-    plot = p,
-    width = w, height = h, units = "in",
-    dpi = dpi, limitsize = FALSE
-  )
-
-  # TIF (GeoTIFF NÃO — é imagem tiff)
-  ggsave(
-    filename = file.path(parts_dir, paste0(filename_base, ".tif")),
-    plot = p,
-    width = w, height = h, units = "in",
-    dpi = dpi, limitsize = FALSE,
-    device = "tiff",
-    compression = "lzw"
-  )
+  ggsave(file.path(parts_dir, paste0(filename_base, ".tif")),
+         plot = p, width = w, height = h, units = "in",
+         dpi = dpi, limitsize = FALSE,
+         device = "tiff", compression = "lzw")
 }
 
-# ---- Save main panel parts ----
 save_plot_png_tif(final_panel,      "00_final_panel",        w = 22, h = 24)
 save_plot_png_tif(suitability_map,  "01_ensemble_map",       w = 12, h = 8)
 save_plot_png_tif(importance_plot,  "02_variable_importance",w = 10, h = 6)
@@ -619,8 +564,6 @@ save_plot_png_tif(tss_plot,         "04_TSS_models",         w = 10, h = 6)
 save_plot_png_tif(roc_plot,         "05_ROC_models",         w = 10, h = 6)
 save_plot_png_tif(evaluation_panel, "06_metrics_panel",      w = 16, h = 6)
 
-# ---- Save each predictor panel separately ----
-# var_panels is a list; names are predictors
 if (exists("var_panels") && length(var_panels) > 0) {
   for (nm in names(var_panels)) {
     safe_nm <- gsub("[^A-Za-z0-9_\\-]+", "_", nm)
@@ -629,4 +572,3 @@ if (exists("var_panels") && length(var_panels) > 0) {
 }
 
 cat("✅ Saved all panel parts to:", parts_dir, "\n")
-
