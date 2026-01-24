@@ -1,6 +1,6 @@
 # ======================================================
 # Vampyrum spectrum – Models + Ensemble + FINAL Panel
-# (SCRIPT LIMPO / teste81 – versão completa e corrigida)
+# (SCRIPT LIMPO / teste82 – versão completa e corrigida)
 # ======================================================
 
 # -----------------------------
@@ -23,7 +23,7 @@ set.seed(42)
 # -----------------------------
 # 1) Output directory
 # -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste81_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste82_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Output:", output_dir, "\n")
 
@@ -43,7 +43,7 @@ cat("Occurrences:", nrow(coords), "\n")
 
 write.csv(
   data.frame(species="Vampyrum_spectrum", lon=coords$x, lat=coords$y),
-  file.path(output_dir, "occurrences_teste81.csv"),
+  file.path(output_dir, "occurrences_teste82.csv"),
   row.names = FALSE
 )
 
@@ -78,56 +78,90 @@ raster::writeRaster(BIO7,   file.path(output_dir, "BIO7.tif"), overwrite = TRUE)
 
 # ======================================================
 # 4) MASK (from NEOTROPICAL shapefile) + apply to env
-#     (biomod2 old-compatible; keeps islands)
+#     - garante que TODOS os pontos estão dentro
+#     - se não estiverem: expande com buffer ao redor dos pontos
 # ======================================================
 
 neotrop_shp <- "C:/Users/Administrador/Desktop/Gab/Mod/Preditores/NEOTROPICAL/NEOTROPICAL/neotropico.shp"
 
 stopifnot(inherits(env, c("RasterStack","RasterBrick")))
-ref_r <- env[[1]]   # raster de referência (grade/CRS/res)
+ref_r <- env[[1]]
+ref_t <- terra::rast(ref_r)
+ref_crs <- terra::crs(ref_t)
 
-# --- (1) Lê o shapefile do Neotrópico ---
-neo_v <- terra::vect(neotrop_shp)  # SpatVector
+# --- (1) Lê o shapefile e corrige geometrias ---
+neo_v <- terra::vect(neotrop_shp)
+neo_v <- terra::makeValid(neo_v)
+neo_v <- terra::aggregate(neo_v)  # dissolve (união)
 
-# --- (2) Garante CRS igual ao raster ref ---
-# (terra::crs(ref_r) funciona mesmo sendo raster::RasterLayer)
-ref_crs <- terra::crs(terra::rast(ref_r))
-
-if (!terra::same.crs(neo_v, ref_crs)) {
+# --- (2) Garante CRS igual ao raster ---
+if (!terra::same.crs(neo_v, ref_t)) {
   message("Reprojecting neotropico.shp to env CRS...")
-  neo_v <- terra::project(neo_v, ref_crs)
+  neo_v <- terra::project(neo_v, ref_t)
 }
 
-# --- (3) Rasteriza o shapefile na grade do ref_r ---
-# Convertendo ref_r para SpatRaster apenas para rasterizar com terra
-ref_t <- terra::rast(ref_r)
+# --- (3) Pontos (ocorrências) como SpatVector no CRS do raster ---
+pts_ll <- data.frame(x = coords$x, y = coords$y)
+pts_v  <- terra::vect(pts_ll, geom = c("x","y"), crs = "EPSG:4326")
 
-mask_t <- terra::rasterize(neo_v, ref_t, field = 1, background = NA)
+if (!terra::same.crs(pts_v, ref_t)) {
+  pts_v <- terra::project(pts_v, ref_t)
+}
 
-# Converte de volta para RasterLayer (para biomod2 + raster::mask)
+# --- (4) Checagem: quantos pontos estão dentro do Neotrópico? ---
+inside <- !is.na(terra::extract(neo_v, pts_v)[,1])
+n_out  <- sum(!inside)
+
+cat("Pontos fora do neotropico.shp:", n_out, "de", nrow(coords), "\n")
+
+# --- (5) Se houver pontos fora: expande a máscara com buffer ao redor dos pontos ---
+# Ajuste aqui o buffer (metros). 200 km = 200000
+# Para buffer em metros, usamos um CRS métrico temporário (EPSG:3857).
+if (n_out > 0) {
+  message("⚠ Existem pontos fora do neotropico.shp. Expandindo máscara com buffer...")
+
+  # Projeta para CRS métrico
+  neo_m  <- terra::project(neo_v,  "EPSG:3857")
+  pts_m  <- terra::project(pts_v,  "EPSG:3857")
+
+  buff_m <- terra::buffer(pts_m, width = 200000)   # 200 km
+  buff_m <- terra::aggregate(buff_m)               # dissolve buffer
+
+  # União neotrópico + buffer e volta pro CRS do raster
+  neo_plus <- terra::union(neo_m, buff_m)
+  neo_plus <- terra::project(neo_plus, ref_t)
+
+  neo_v <- neo_plus
+
+  # Recheca
+  inside2 <- !is.na(terra::extract(neo_v, pts_v)[,1])
+  n_out2  <- sum(!inside2)
+  cat("Após expansão, pontos fora:", n_out2, "\n")
+
+  if (n_out2 > 0) {
+    stop("Ainda existem pontos fora da máscara após expansão. Verifique CRS e o shapefile.")
+  }
+}
+
+# --- (6) Rasteriza na grade do raster (máscara 1/NA) ---
+mask_t <- terra::rasterize(neo_v, ref_t, field = 1, background = NA, touches = TRUE)
+mask_t <- terra::ifel(mask_t == 1, 1, NA)
+
+# Salva máscara (tif)
+terra::writeRaster(mask_t,
+                   file.path(output_dir, "mask_used_MODEL_neotropico_PLUS_pointsBuffer_teste82.tif"),
+                   overwrite = TRUE)
+
+# Converte para RasterLayer (para raster::mask)
 mask_r <- raster::raster(mask_t)
 
-# Normaliza para {1, NA}
-mask_r[mask_r <= 0] <- NA
-mask_r[mask_r >  0] <- 1
-
-# (Opcional) recorta para o extent do ref (por segurança)
-mask_r <- raster::crop(mask_r, raster::extent(ref_r))
-
-# Salva a máscara usada na modelagem
-raster::writeRaster(
-  mask_r,
-  file.path(output_dir, "mask_used_MODEL_neotropico_teste81.tif"),
-  overwrite = TRUE
-)
-
-# --- (4) Aplica máscara aos preditores (env_masked) ---
+# Aplica máscara aos preditores
 env_masked <- raster::stack(lapply(1:raster::nlayers(env), function(i) {
   raster::mask(env[[i]], mask_r)
 }))
 names(env_masked) <- names(env)
 
-cat("✔ Mask (neotropico.shp) aplicada aos preditores.\n")
+cat("✔ Mask aplicada aos preditores e cobrindo todos os pontos.\n")
 
 # ======================================================
 # 5) BIOMOD_FormatingData (with PA)
@@ -145,7 +179,7 @@ biomod_data <- BIOMOD_FormatingData(
   resp.name = "Vampyrum.spectrum"
 )
 
-saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste81.rds"))
+saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste82.rds"))
 cat("✔ BIOMOD_FormatingData done (env masked only by base America mask).\n")
 
 # ======================================================
@@ -171,7 +205,7 @@ models <- BIOMOD_Modeling(
   var.import = 3
 )
 
-saveRDS(models, file.path(output_dir, "models_teste81.rds"))
+saveRDS(models, file.path(output_dir, "models_teste82.rds"))
 
 # ======================================================
 # 7) Ensemble
@@ -186,17 +220,17 @@ ensemble <- BIOMOD_EnsembleModeling(
   var.import = 3
 )
 
-saveRDS(ensemble, file.path(output_dir, "ensemble_teste81.rds"))
+saveRDS(ensemble, file.path(output_dir, "ensemble_teste82.rds"))
 
 # ======================================================
 # 8) Ensemble Forecasting (use env_masked)
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble,
-  proj.name = "current_teste81",
+  proj.name = "current_teste82",
   new.env = env_masked
 )
-saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste81.rds"))
+saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste82.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
@@ -215,7 +249,7 @@ if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_RAW_teste81.tif"),
+  file.path(output_dir, "ensemble_suitability_RAW_teste82.tif"),
   overwrite = TRUE
 )
 
@@ -255,11 +289,30 @@ ensemble_raster_single <- ens_masked
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_MASKED_quadLandZERO_teste81.tif"),
+  file.path(output_dir, "ensemble_suitability_MASKED_quadLandZERO_teste82.tif"),
   overwrite = TRUE
 )
 
 message("✔ Ensemble masked + quadrilátero zerado SOMENTE em terra (mar não pintado).")
+
+# ======================================================
+# 8C) PADRONIZAR ENSEMBLE PARA 0-1 (mantém NA)
+# ======================================================
+r <- ensemble_raster_single
+
+mn <- terra::global(r, "min", na.rm=TRUE)[1,1]
+mx <- terra::global(r, "max", na.rm=TRUE)[1,1]
+
+if (!is.finite(mn) || !is.finite(mx) || mx <= mn) stop("Min/Max inválidos para normalização 0-1.")
+
+r01 <- (r - mn) / (mx - mn)
+ensemble_raster_single <- r01
+
+terra::writeRaster(ensemble_raster_single,
+                   file.path(output_dir, "ensemble_suitability_0_1.tif"),
+                   overwrite=TRUE)
+
+cat("✔ Ensemble normalizado 0–1. Min=", mn, " Max=", mx, "\n")
 
 # ======================================================
 # 9) Cutoffs + Binary maps (com NA preservado)
@@ -299,7 +352,7 @@ save_binary_map <- function(cutoff_value, suffix) {
 
   terra::writeRaster(
     r_bin,
-    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste81.tif")),
+    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste82.tif")),
     overwrite = TRUE
   )
 
@@ -315,7 +368,7 @@ save_binary_map <- function(cutoff_value, suffix) {
     theme(plot.title = element_text(face="bold", hjust=0.5))
 
   ggsave(
-    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste81.png")),
+    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste82.png")),
     plot = p_bin, width = 10, height = 7, units = "in", dpi = 300
   )
 
@@ -352,7 +405,7 @@ importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   summarise(importance = mean(var.imp, na.rm = TRUE), .groups="drop") %>%
   rename(var = expl.var)
 
-write.csv(importance, file.path(output_dir, "importance_teste81.csv"), row.names = FALSE)
+write.csv(importance, file.path(output_dir, "importance_teste82.csv"), row.names = FALSE)
 
 importance_plot <- ggplot(
   importance %>% arrange(desc(importance)),
@@ -538,7 +591,7 @@ final_panel <- (suitability_map | importance_plot) /
     theme = theme(plot.title = element_text(size=14, face="bold", hjust=0.5))
   )
 
-out_panel <- file.path(output_dir, "04_FINAL_PANEL_teste81.png")
+out_panel <- file.path(output_dir, "04_FINAL_PANEL_teste82.png")
 cat("Saving:", out_panel, "\n")
 
 ok <- tryCatch({
@@ -587,3 +640,49 @@ if (exists("var_panels") && length(var_panels) > 0) {
 }
 
 cat("✅ Saved all panel parts to:", parts_dir, "\n")
+
+
+# ======================================================
+# 16) EXPORT FINAL PARA QGIS (TIF + SHP)
+#     - Ensemble contínuo (0-1): TIF
+#     - Ensemble binário (TSS): TIF + SHP
+#     - Máscara: TIF + SHP
+# ======================================================
+
+export_dir <- file.path(output_dir, "QGIS_exports")
+dir.create(export_dir, recursive = TRUE, showWarnings = FALSE)
+
+# --- (A) ENSEMBLE 0-1 (TIF) ---
+ens01_tif <- file.path(export_dir, "ensemble_0_1.tif")
+terra::writeRaster(ensemble_raster_single, ens01_tif, overwrite=TRUE)
+
+# --- (B) BINÁRIO TSS (TIF + SHP) ---
+if (!is.finite(cut_tss)) stop("cut_tss é NA. Não dá para exportar binário TSS.")
+
+ens_bin_tss <- terra::ifel(is.na(ensemble_raster_single), NA,
+                           terra::ifel(ensemble_raster_single >= cut_tss, 1, 0))
+
+bin_tif <- file.path(export_dir, "ensemble_binary_TSS.tif")
+terra::writeRaster(ens_bin_tss, bin_tif, overwrite=TRUE)
+
+# Polygonize SOMENTE do binário (leve)
+bin_poly <- terra::as.polygons(ens_bin_tss, dissolve=TRUE, values=TRUE, na.rm=TRUE)
+# mantém apenas classe 1
+bin_poly <- bin_poly[bin_poly[[1]] == 1, ]
+
+bin_shp <- file.path(export_dir, "ensemble_binary_TSS.shp")
+terra::writeVector(bin_poly, bin_shp, overwrite=TRUE)
+
+# --- (C) MÁSCARA (TIF + SHP) ---
+# Se você tiver mask_t do passo 4, use ele; senão recria na grade do ensemble:
+mask_qgis <- terra::rasterize(neo_v, ensemble_raster_single, field=1, background=NA, touches=TRUE)
+mask_qgis <- terra::ifel(mask_qgis == 1, 1, NA)
+
+mask_tif <- file.path(export_dir, "mask_model.tif")
+terra::writeRaster(mask_qgis, mask_tif, overwrite=TRUE)
+
+mask_poly <- terra::as.polygons(mask_qgis, dissolve=TRUE, values=TRUE, na.rm=TRUE)
+mask_shp  <- file.path(export_dir, "mask_model.shp")
+terra::writeVector(mask_poly, mask_shp, overwrite=TRUE)
+
+cat("✅ Export QGIS pronto em:", export_dir, "\n")
