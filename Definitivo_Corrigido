@@ -1,6 +1,6 @@
 # ======================================================
 # Vampyrum spectrum – Models + Ensemble + FINAL Panel
-# (SCRIPT LIMPO / teste82 – versão completa e corrigida)
+# (SCRIPT LIMPO / teste83 – versão completa e corrigida)
 # ======================================================
 
 # -----------------------------
@@ -23,7 +23,7 @@ set.seed(42)
 # -----------------------------
 # 1) Output directory
 # -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste82_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste83_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Output:", output_dir, "\n")
 
@@ -43,7 +43,7 @@ cat("Occurrences:", nrow(coords), "\n")
 
 write.csv(
   data.frame(species="Vampyrum_spectrum", lon=coords$x, lat=coords$y),
-  file.path(output_dir, "occurrences_teste82.csv"),
+  file.path(output_dir, "occurrences_teste83.csv"),
   row.names = FALSE
 )
 
@@ -149,7 +149,7 @@ mask_t <- terra::ifel(mask_t == 1, 1, NA)
 
 # Salva máscara (tif)
 terra::writeRaster(mask_t,
-                   file.path(output_dir, "mask_used_MODEL_neotropico_PLUS_pointsBuffer_teste82.tif"),
+                   file.path(output_dir, "mask_used_MODEL_neotropico_PLUS_pointsBuffer_teste81.tif"),
                    overwrite = TRUE)
 
 # Converte para RasterLayer (para raster::mask)
@@ -179,7 +179,7 @@ biomod_data <- BIOMOD_FormatingData(
   resp.name = "Vampyrum.spectrum"
 )
 
-saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste82.rds"))
+saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste83.rds"))
 cat("✔ BIOMOD_FormatingData done (env masked only by base America mask).\n")
 
 # ======================================================
@@ -205,7 +205,7 @@ models <- BIOMOD_Modeling(
   var.import = 3
 )
 
-saveRDS(models, file.path(output_dir, "models_teste82.rds"))
+saveRDS(models, file.path(output_dir, "models_teste83.rds"))
 
 # ======================================================
 # 7) Ensemble
@@ -220,17 +220,17 @@ ensemble <- BIOMOD_EnsembleModeling(
   var.import = 3
 )
 
-saveRDS(ensemble, file.path(output_dir, "ensemble_teste82.rds"))
+saveRDS(ensemble, file.path(output_dir, "ensemble_teste83.rds"))
 
 # ======================================================
 # 8) Ensemble Forecasting (use env_masked)
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble,
-  proj.name = "current_teste82",
+  proj.name = "current_teste83",
   new.env = env_masked
 )
-saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste82.rds"))
+saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste83.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
@@ -249,51 +249,51 @@ if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_RAW_teste82.tif"),
+  file.path(output_dir, "ensemble_suitability_RAW_teste83.tif"),
   overwrite = TRUE
 )
 
 # ======================================================
-# 8B) APPLY MASK TO ENSEMBLE + “NEUTRALIZAR” APENAS TERRA
-#     dentro do quadrilátero (sem pintar o mar)
-#     - ilhas permanecem
-#     - mar fica NA (forçado por land mask)
+# 8B) APPLY MASK TO ENSEMBLE + ZERAR QUADRANTE SOMENTE EM TERRA
 # ======================================================
 
-neotrop_shp <- "C:/Users/Administrador/Desktop/Gab/Mod/Preditores/NEOTROPICAL/NEOTROPICAL/neotropico.shp"
+# (1) máscara base já coerente: derive do mesmo neo_v usado na modelagem
+m <- terra::rasterize(neo_v, ensemble_raster_single, field = 1, background = NA, touches = TRUE)
+m <- terra::ifel(m == 1, 1, NA)
 
-# (1) Base mask do Neotrópico na mesma grade do ensemble
-neo_v <- terra::vect(neotrop_shp)
-
-if (!terra::same.crs(neo_v, ensemble_raster_single)) {
-  message("Reprojecting neotropico.shp to ensemble CRS...")
-  neo_v <- terra::project(neo_v, ensemble_raster_single)
-}
-
-m <- terra::rasterize(neo_v, ensemble_raster_single, field = 1, background = NA)
-m <- terra::ifel(m > 0, 1, NA)
-
-# Aplica a máscara do Neotrópico
 ens_masked <- terra::mask(ensemble_raster_single, m)
-if (!terra::hasValues(ens_masked)) stop("Mask killed all values. Check neotropico.shp overlap / CRS.")
+if (!terra::hasValues(ens_masked)) stop("Mask killed all values. Check mask overlap / CRS.")
 
-# (2) LAND mask (terra=1, mar=NA)  -> garante que o mar NÃO vai aparecer pintado
-countries_sf <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
-land <- terra::rasterize(terra::vect(countries_sf), ens_masked, field = 1, background = NA)
-
-# Força oceano = NA (inclui neotropico “marinho”, se existir)
+# (2) máscara de TERRA (não pinta oceano)
+countries_sf <- rnaturalearth::ne_countries(scale="medium", returnclass="sf")
+land <- terra::rasterize(terra::vect(countries_sf), ens_masked, field=1, background=NA, touches=TRUE)
 ens_masked <- terra::mask(ens_masked, land)
 
-# Update object used downstream
-ensemble_raster_single <- ens_masked
-
-terra::writeRaster(
-  ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_MASKED_quadLandZERO_teste82.tif"),
-  overwrite = TRUE
+# (3) quadrilátero (lon,lat) -> polígono
+quad_ll <- rbind(
+  c(-85.469, 24.029),
+  c(-84.658, 17.675),
+  c(-59.768, 12.883),
+  c(-65.544, 23.414),
+  c(-85.469, 24.029)
 )
 
-message("✔ Ensemble masked + quadrilátero zerado SOMENTE em terra (mar não pintado).")
+quad_poly_ll <- terra::vect(quad_ll, type="polygons", crs="EPSG:4326")
+quad_poly    <- terra::project(quad_poly_ll, ens_masked)
+
+quad_r <- terra::rasterize(quad_poly, ens_masked, field=1, background=NA, touches=TRUE)
+
+# (4) zera somente em pixels de terra dentro do quadrilátero
+idx <- !is.na(quad_r) & !is.na(land)
+ens_masked <- terra::ifel(idx, 0, ens_masked)
+
+ensemble_raster_single <- ens_masked
+
+terra::writeRaster(ensemble_raster_single,
+                   file.path(output_dir, "ensemble_suitability_MASKED_quadLandZERO.tif"),
+                   overwrite=TRUE)
+
+message("✔ Ensemble mascarado + quadrilátero zerado SOMENTE em TERRA (oceano NA).")
 
 # ======================================================
 # 8C) PADRONIZAR ENSEMBLE PARA 0-1 (mantém NA)
@@ -352,7 +352,7 @@ save_binary_map <- function(cutoff_value, suffix) {
 
   terra::writeRaster(
     r_bin,
-    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste82.tif")),
+    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste83.tif")),
     overwrite = TRUE
   )
 
@@ -368,7 +368,7 @@ save_binary_map <- function(cutoff_value, suffix) {
     theme(plot.title = element_text(face="bold", hjust=0.5))
 
   ggsave(
-    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste82.png")),
+    file.path(output_dir, paste0("ensemble_binary_", suffix, "_MASKED_teste83.png")),
     plot = p_bin, width = 10, height = 7, units = "in", dpi = 300
   )
 
@@ -405,7 +405,7 @@ importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   summarise(importance = mean(var.imp, na.rm = TRUE), .groups="drop") %>%
   rename(var = expl.var)
 
-write.csv(importance, file.path(output_dir, "importance_teste82.csv"), row.names = FALSE)
+write.csv(importance, file.path(output_dir, "importance_teste83.csv"), row.names = FALSE)
 
 importance_plot <- ggplot(
   importance %>% arrange(desc(importance)),
@@ -591,7 +591,7 @@ final_panel <- (suitability_map | importance_plot) /
     theme = theme(plot.title = element_text(size=14, face="bold", hjust=0.5))
   )
 
-out_panel <- file.path(output_dir, "04_FINAL_PANEL_teste82.png")
+out_panel <- file.path(output_dir, "04_FINAL_PANEL_teste83.png")
 cat("Saving:", out_panel, "\n")
 
 ok <- tryCatch({
