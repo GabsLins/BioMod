@@ -129,4 +129,35 @@ ggsave(
     height = 9
 )
 
+# -----------------------------
+# Salvar figura (JPG + TIF)
+# -----------------------------
+
+# JPG (alta qualidade – ideal para visualização)
+ggsave(
+    filename = file.path(output_dir, "Figura_matriz_correlacao_13_26var.jpg"),
+    plot = p_cor,
+    width = 11,
+    height = 9,
+    units = "in",
+    dpi = 300,
+    device = "jpeg",
+    quality = 95
+)
+
+# TIF (padrão para periódicos científicos)
+ggsave(
+    filename = file.path(output_dir, "Figura_matriz_correlacao_13_26var.tif"),
+    plot = p_cor,
+    width = 11,
+    height = 9,
+    units = "in",
+    dpi = 300,
+    device = "tiff",
+    compression = "lzw"
+)
+
+cat("✅ Correlação e heatmap salvos em JPG e TIF com sucesso.\n")
+
+
 cat("✅ Correlação e heatmap gerados com sucesso.\n")
