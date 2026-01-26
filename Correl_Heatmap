@@ -1,0 +1,132 @@
+# ======================================================
+# CORRELAÇÃO AMBIENTAL + HEATMAP (Pearson)
+# Vampyrum spectrum
+# ======================================================
+
+library(ggplot2)
+
+# -----------------------------
+# Diretório de saída
+# -----------------------------
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_Correlacao"
+
+if (!dir.exists(output_dir)) {
+    dir.create(output_dir, recursive = TRUE)
+}
+
+cat("📁 Diretório de saída:", output_dir, "\n")
+# -----------------------------
+# Caminhos
+# -----------------------------
+base_path <- "C:/Users/Administrador/Desktop/GAB/Mod"
+
+pointsample_file <- file.path(base_path, "pointsample12_26var.csv")
+
+# -----------------------------
+# Ler tabela amostrada
+# -----------------------------
+pointsample <- read.csv(pointsample_file)
+
+# -----------------------------
+# Variáveis de interesse
+# -----------------------------
+variaveis_desejadas <- c(
+    "precipBIO12", "maxtemperature", "meantemperature", "mintemperature",
+    "vaporpressure", "wind", "relevo", "NDVI", "LAI",
+    "BIO2", "BIO3", "BIO4", "BIO5", "BIO6", "BIO7",
+    "BIO8", "BIO9", "BIO10", "BIO11",
+    "BIO13", "BIO14", "BIO15", "BIO16", "BIO17", "BIO18", "BIO19"
+)
+
+variaveis_presentes <- variaveis_desejadas[
+    variaveis_desejadas %in% names(pointsample)
+]
+
+if (length(variaveis_presentes) < 2) {
+    stop("Número insuficiente de variáveis para correlação.")
+}
+
+# -----------------------------
+# Subset e correlação
+# -----------------------------
+dados_cor <- pointsample[, variaveis_presentes]
+
+cor_matrix <- cor(
+    dados_cor,
+    method = "pearson",
+    use = "complete.obs"
+)
+
+# Salvar matriz
+write.csv(
+    cor_matrix,
+    file.path(base_path, "matriz_correlacao_12_26var.csv"),
+    row.names = TRUE
+)
+
+# -----------------------------
+# Converter para formato longo
+# -----------------------------
+df_cor <- as.data.frame(as.table(cor_matrix))
+colnames(df_cor) <- c("Var1", "Var2", "Corr")
+
+vars <- colnames(cor_matrix)
+df_cor$Var1 <- factor(df_cor$Var1, levels = vars)
+df_cor$Var2 <- factor(df_cor$Var2, levels = vars)
+
+# -----------------------------
+# Heatmap
+# -----------------------------
+p_cor <- ggplot(df_cor, aes(Var1, Var2, fill = Corr)) +
+    geom_tile(color = "white", linewidth = 0.3) +
+    
+    # VALORES DE CORRELAÇÃO DENTRO DOS QUADRADOS
+    geom_text(
+        aes(label = sprintf("%.2f", Corr)),
+        color = "black",
+        size = 3
+    ) +
+    
+    coord_fixed() +
+    scale_fill_gradient2(
+        low = "#2166AC",
+        mid = "white",
+        high = "#B2182B",
+        midpoint = 0,
+        limits = c(-1, 1),
+        name = "Pearson r"
+    ) +
+    theme_minimal(base_size = 11) +
+    theme(
+        axis.title = element_blank(),
+        panel.grid = element_blank(),
+        axis.text.x = element_text(
+            angle = 45,
+            hjust = 1,
+            vjust = 1,
+            color = "black"
+        ),
+        axis.text.y = element_text(color = "black"),
+        legend.title = element_text(color = "black")
+    ) +
+    labs(title = "Matriz de Correlação (Pearson)")
+
+# -----------------------------
+# Salvar figura
+# -----------------------------
+ggsave(
+    file.path(base_path, "Figura_matriz_correlacao_13_26var.png"),
+    plot = p_cor,
+    width = 11,
+    height = 9,
+    dpi = 300
+)
+
+ggsave(
+    file.path(base_path, "Figura_matriz_correlacao_13_26var.pdf"),
+    plot = p_cor,
+    width = 11,
+    height = 9
+)
+
+cat("✅ Correlação e heatmap gerados com sucesso.\n")
