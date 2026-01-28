@@ -1,0 +1,161 @@
+# ======================================================
+# spThin (5 km) + Relatórios + Mapas (kept vs removed)
+# Vampyrum spectrum
+# ======================================================
+
+# -----------------------------
+# 0) Pacotes
+# -----------------------------
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(spThin)
+  library(ggplot2)
+  library(sf)
+  library(rnaturalearth)
+  library(rnaturalearthdata)
+})
+
+set.seed(123)
+
+# -----------------------------
+# 1) Entradas / Saídas
+# -----------------------------
+occ_csv <- "C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All4.csv"
+
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_spThin_5km"
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+cat("📁 Diretório de saída:", output_dir, "\n")
+
+# -----------------------------
+# 2) Ler e padronizar colunas
+# -----------------------------
+occ <- read.csv(occ_csv, stringsAsFactors = FALSE)
+
+# garantir nomes esperados
+stopifnot(all(c("longitude","latitude") %in% names(occ)))
+
+occ <- occ %>%
+  mutate(
+    longitude = as.numeric(longitude),
+    latitude  = as.numeric(latitude)
+  ) %>%
+  filter(is.finite(longitude), is.finite(latitude))
+
+# species (spThin exige spec.col)
+if (!("species" %in% names(occ))) {
+  occ$species <- "Vampyrum_spectrum"
+} else {
+  occ$species[is.na(occ$species) | occ$species==""] <- "Vampyrum_spectrum"
+}
+
+cat("Registros válidos (lon/lat finitos):", nrow(occ), "\n")
+
+# -----------------------------
+# 3) Remover duplicatas EXATAS de coordenadas
+# -----------------------------
+mk_key <- function(lon, lat, digits = 6) paste0(round(lon, digits), "_", round(lat, digits))
+occ$key <- mk_key(occ$longitude, occ$latitude, 6)
+
+occ_unique <- occ %>% distinct(key, .keep_all = TRUE)
+occ_removed_dups <- occ %>% anti_join(occ_unique, by = "key")
+
+cat("Duplicatas exatas removidas:", nrow(occ_removed_dups), "\n")
+cat("Pontos únicos:", nrow(occ_unique), "\n")
+
+write.csv(occ_unique,       file.path(output_dir, "occ_unique_noExactDups.csv"), row.names = FALSE)
+write.csv(occ_removed_dups, file.path(output_dir, "occ_removed_exactDups.csv"),  row.names = FALSE)
+
+# -----------------------------
+# 4) spThin (5 km)
+# -----------------------------
+thin_km <- 5
+
+thin_res <- thin(
+  loc.data = occ_unique,
+  lat.col  = "latitude",
+  long.col = "longitude",
+  spec.col = "species",
+  thin.par = thin_km,   # km
+  reps = 1,
+  locs.thinned.list.return = TRUE,
+  write.files = FALSE
+)
+
+# thinned df
+occ_thinned <- thin_res[[1]]
+cat("Pontos após thinning:", nrow(occ_thinned), "\n")
+cat("Removidos pelo thinning:", nrow(occ_unique) - nrow(occ_thinned), "\n")
+
+# -----------------------------
+# 5) Separar kept vs removed (thinning)
+#    (ATENÇÃO: colunas do spThin podem vir como 'Longitude'/'Latitude')
+# -----------------------------
+# detectar nomes reais em occ_thinned
+lon_name <- intersect(names(occ_thinned), c("longitude","Longitude","LONGITUDE","lon","Lon","x","X"))[1]
+lat_name <- intersect(names(occ_thinned), c("latitude","Latitude","LATITUDE","lat","Lat","y","Y"))[1]
+if (is.na(lon_name) || is.na(lat_name)) stop("Não consegui identificar colunas de lon/lat no objeto do spThin.")
+
+occ_thinned <- occ_thinned %>%
+  mutate(
+    longitude = as.numeric(.data[[lon_name]]),
+    latitude  = as.numeric(.data[[lat_name]])
+  )
+
+occ_unique <- occ_unique %>% mutate(longitude = as.numeric(longitude), latitude = as.numeric(latitude))
+
+occ_unique$key2  <- mk_key(occ_unique$longitude,  occ_unique$latitude, 6)
+occ_thinned$key2 <- mk_key(occ_thinned$longitude, occ_thinned$latitude, 6)
+
+occ_kept <- occ_unique %>% semi_join(occ_thinned, by = "key2")
+occ_removed_thin <- occ_unique %>% anti_join(occ_thinned, by = "key2")
+
+cat("Kept (thinning):", nrow(occ_kept), "\n")
+cat("Removed (thinning):", nrow(occ_removed_thin), "\n")
+
+write.csv(occ_kept,         file.path(output_dir, "occ_spThin_5km_kept.csv"),    row.names = FALSE)
+write.csv(occ_removed_thin, file.path(output_dir, "occ_spThin_5km_removed.csv"), row.names = FALSE)
+
+# -----------------------------
+# 6) Mapas (kept vs removed)
+# -----------------------------
+world <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
+
+# extensão aproximada (Américas) – ajuste se quiser
+xlim_use <- c(-120, -30)
+ylim_use <- c(-60,  35)
+
+df_plot <- bind_rows(
+  occ_kept   %>% transmute(longitude, latitude, status = "Kept (5 km)"),
+  occ_removed_thin %>% transmute(longitude, latitude, status = "Removed (5 km)")
+)
+
+p_map <- ggplot() +
+  geom_sf(data = world, fill = "gray95", color = "gray50", linewidth = 0.2) +
+  geom_point(
+    data = df_plot,
+    aes(x = longitude, y = latitude, shape = status, color = status),
+    size = 2, alpha = 0.85
+  ) +
+  coord_sf(xlim = xlim_use, ylim = ylim_use, expand = FALSE) +
+  theme_minimal(base_size = 12) +
+  labs(
+    title = "Occurrence thinning (spThin) – 5 km",
+    subtitle = paste0("Kept: ", nrow(occ_kept), " | Removed: ", nrow(occ_removed_thin),
+                      " | Exact duplicates removed before thinning: ", nrow(occ_removed_dups)),
+    x = "Longitude", y = "Latitude",
+    color = "", shape = ""
+  ) +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold")
+  )
+
+# salvar PNG / JPG / TIF
+ggsave(file.path(output_dir, "map_spThin_5km_kept_vs_removed.png"), p_map, width = 10, height = 7, dpi = 300)
+ggsave(file.path(output_dir, "map_spThin_5km_kept_vs_removed.jpg"), p_map, width = 10, height = 7, dpi = 300)
+
+# TIF (boa prática p/ artigo)
+ggsave(file.path(output_dir, "map_spThin_5km_kept_vs_removed.tif"),
+       p_map, width = 10, height = 7, dpi = 300, device = "tiff", compression = "lzw")
+
+cat("✅ Finalizado.\nArquivos gerados em:", output_dir, "\n")
