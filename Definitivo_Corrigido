@@ -1,6 +1,6 @@
 # ======================================================
 # Vampyrum spectrum – Models + Ensemble + FINAL Panel
-# (SCRIPT LIMPO / teste86)
+# (SCRIPT LIMPO / teste87)
 # ======================================================
 
 # -----------------------------
@@ -21,9 +21,9 @@ library(viridis)
 set.seed(42)
 
 # -----------------------------
-# 1) Output directory (teste86)
+# 1) Output directory (teste87)
 # -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste86_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste87_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Output:", output_dir, "\n")
 
@@ -43,7 +43,7 @@ cat("Occurrences:", nrow(coords), "\n")
 
 write.csv(
   data.frame(species="Vampyrum_spectrum", lon=coords$x, lat=coords$y),
-  file.path(output_dir, "occurrences_teste86.csv"),
+  file.path(output_dir, "occurrences_teste87.csv"),
   row.names = FALSE
 )
 
@@ -136,7 +136,7 @@ biomod_data <- BIOMOD_FormatingData(
   resp.name = "Vampyrum.spectrum"
 )
 
-saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste86.rds"))
+saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste87.rds"))
 cat("✔ BIOMOD_FormatingData done.\n")
 
 # ======================================================
@@ -162,7 +162,7 @@ models <- BIOMOD_Modeling(
   var.import = 3
 )
 
-saveRDS(models, file.path(output_dir, "models_teste86.rds"))
+saveRDS(models, file.path(output_dir, "models_teste87.rds"))
 
 # ======================================================
 # 6) Ensemble
@@ -177,17 +177,17 @@ ensemble <- BIOMOD_EnsembleModeling(
   var.import = 3
 )
 
-saveRDS(ensemble, file.path(output_dir, "ensemble_teste86.rds"))
+saveRDS(ensemble, file.path(output_dir, "ensemble_teste87.rds"))
 
 # ======================================================
 # 7) Ensemble Forecasting
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble,
-  proj.name = "current_teste86",
+  proj.name = "current_teste87",
   new.env = env
 )
-saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste86.rds"))
+saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste87.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
@@ -206,7 +206,7 @@ if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_teste86.tif"),
+  file.path(output_dir, "ensemble_suitability_teste87.tif"),
   overwrite = TRUE
 )
 
@@ -245,7 +245,7 @@ ensemble_01 <- (ensemble_raster_single - mn) / (mx - mn)
 
 terra::writeRaster(
   ensemble_01,
-  file.path(output_dir, "ensemble_suitability_0_1_teste86.tif"),
+  file.path(output_dir, "ensemble_suitability_0_1_teste87.tif"),
   overwrite = TRUE
 )
 
@@ -263,7 +263,7 @@ if (is.finite(cut_tss_01)) {
 
   terra::writeRaster(
     ensemble_bin_tss,
-    file.path(output_dir, "ensemble_binary_TSS_teste86.tif"),
+    file.path(output_dir, "ensemble_binary_TSS_teste87.tif"),
     overwrite = TRUE
   )
 
@@ -280,7 +280,7 @@ if (is.finite(cut_tss_01)) {
     theme(plot.title = element_text(face = "bold", hjust = 0.5))
 
   ggsave(
-    file.path(output_dir, "ensemble_binary_TSS_teste86.png"),
+    file.path(output_dir, "ensemble_binary_TSS_teste87.png"),
     plot = p_bin, width = 10, height = 7, units = "in", dpi = 300
   )
 
@@ -316,7 +316,7 @@ importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   summarise(importance = mean(var.imp, na.rm = TRUE), .groups="drop") %>%
   rename(var = expl.var)
 
-write.csv(importance, file.path(output_dir, "importance_teste86.csv"), row.names = FALSE)
+write.csv(importance, file.path(output_dir, "importance_teste87.csv"), row.names = FALSE)
 
 importance_plot <- ggplot(
   importance %>% arrange(desc(importance)),
@@ -502,7 +502,7 @@ final_panel <- (suitability_map | importance_plot) /
     theme = theme(plot.title = element_text(size=14, face="bold", hjust=0.5))
   )
 
-out_panel <- file.path(output_dir, "04_FINAL_PANEL_teste86.png")
+out_panel <- file.path(output_dir, "04_FINAL_PANEL_teste87.png")
 cat("Saving:", out_panel, "\n")
 
 ok <- tryCatch({
