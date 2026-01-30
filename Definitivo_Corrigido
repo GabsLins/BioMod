@@ -30,7 +30,7 @@ cat("Output:", output_dir, "\n")
 # ======================================================
 # 2) Occurrences
 # ======================================================
-occ_csv <- "C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All4.csv"
+occ_csv <- "C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All5.csv"
 occ <- read.csv(occ_csv)
 
 coords <- occ %>%
