@@ -105,7 +105,7 @@ biomod_data <- BIOMOD_FormatingData(
   resp.xy       = coords,
   PA.nb.rep     = 10,
   PA.nb.absences= 600,
-  PA.strategy   = "random",
+  PA.strategy   = random,
   PA.dist.min   = 20000,
   PA.dist.max   = 150000,
   filter.raster = TRUE,
