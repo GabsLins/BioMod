@@ -1,6 +1,6 @@
 # ======================================================
 # Vampyrum spectrum – Modelos + Ensemble + Painel FINAL
-# (SCRIPT LIMPO / teste90 - corrigido p/ block CV)
+# (SCRIPT LIMPO / teste91 - corrigido p/ block CV)
 # ======================================================
 
 # -----------------------------
@@ -21,9 +21,9 @@ library(viridis)
 set.seed(42)
 
 # -----------------------------
-# 1) Diretório (teste90)
+# 1) Diretório (teste91)
 # -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste90_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste91_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Output:", output_dir, "\n")
 
@@ -63,7 +63,7 @@ stopifnot(nrow(coords) == length(resp.var))
 # salva ocorrências usadas
 write.csv(
   data.frame(species = "Vampyrum_spectrum", lon = coords$x, lat = coords$y),
-  file.path(output_dir, "dados_ocorrencia_teste90.csv"),
+  file.path(output_dir, "dados_ocorrencia_teste91.csv"),
   row.names = FALSE
 )
 
@@ -105,14 +105,14 @@ biomod_data <- BIOMOD_FormatingData(
   resp.xy       = coords,
   PA.nb.rep     = 10,
   PA.nb.absences= 600,
-  PA.strategy   = random,
+  PA.strategy   = "random",
   PA.dist.min   = 20000,
   PA.dist.max   = 150000,
   filter.raster = TRUE,
   resp.name     = "Vampyrum.spectrum"
 )
 
-saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste90.rds"))
+saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste91.rds"))
 
 # -------- CHECK CRÍTICO (evita erro de row.names no block) ----------
 cat("\n==== CHECK biomod_data ====\n")
@@ -127,7 +127,7 @@ rownames(biomod_data@coord)         <- NULL
 rownames(biomod_data@data.species)  <- NULL
 if ("PA.table" %in% slotNames(biomod_data)) rownames(biomod_data@PA.table) <- NULL
 
-saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste90_rownameFix.rds"))
+saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste91_rownameFix.rds"))
 
 # ======================================================
 # 5) Modelagem (5 algoritmos) – biomod2 novo
@@ -154,7 +154,7 @@ models <- BIOMOD_Modeling(
   nb.cpu      = 1
 )
 
-saveRDS(models, file.path(output_dir, "models_teste90.rds"))
+saveRDS(models, file.path(output_dir, "models_teste91.rds"))
 
 # ======================================================
 # 6) Ensemble
@@ -169,17 +169,17 @@ ensemble <- BIOMOD_EnsembleModeling(
   var.import          = 3
 )
 
-saveRDS(ensemble, file.path(output_dir, "ensemble_teste90.rds"))
+saveRDS(ensemble, file.path(output_dir, "ensemble_teste91.rds"))
 
 # ======================================================
 # 7) Ensemble Forecasting
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em     = ensemble,
-  proj.name = "current_teste90",
+  proj.name = "current_teste91",
   new.env   = env
 )
-saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste90.rds"))
+saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste91.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
@@ -195,7 +195,7 @@ if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_teste90.tif"),
+  file.path(output_dir, "ensemble_suitability_teste91.tif"),
   overwrite = TRUE
 )
 
@@ -230,7 +230,7 @@ importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   summarise(importance = mean(var.imp, na.rm = TRUE), .groups="drop") %>%
   rename(var = expl.var)
 
-write.csv(importance, file.path(output_dir, "importance_teste90.csv"), row.names = FALSE)
+write.csv(importance, file.path(output_dir, "importance_teste91.csv"), row.names = FALSE)
 
 importance_plot <- ggplot(
   importance %>% arrange(desc(importance)),
@@ -429,7 +429,7 @@ final_panel <- (suitability_map | importance_plot) /
     theme = theme(plot.title = element_text(size=14, face="bold"))
   )
 
-out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste90.png")
+out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste91.png")
 cat("Salvando:", out_panel, "\n")
 
 ok <- tryCatch({
