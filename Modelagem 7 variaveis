@@ -19,15 +19,21 @@ library(rnaturalearthdata)
 library(kernlab)
 library(reshape2)
 
+#### DIRETORIO
+
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste98_7variaveis"
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+cat("Output:", output_dir, "\n")
+
 ###### ALL LAYERS
 ## Occurrence data
-occurence <- read.csv("C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All3.csv")
+occurence <- read.csv("C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All5.csv")
 coords <- data.frame(x = occurence$longitude, y = occurence$latitude)
-resp.var <- rep(1, 295)
+resp.var <- rep(1, 233)
 sp <- SpatialPoints(coords, proj4string = CRS("EPSG:4326"))
 
 occ_data <- data.frame(
-  species = rep("Vampyrum_spectrum", 295),
+  species = rep("Vampyrum_spectrum", 233),
   lon = c(coords$x),
   lat = c(coords$y)
 )
@@ -78,9 +84,9 @@ biomod_data <- BIOMOD_FormatingData(
   expl.var = env_data,
   resp.xy = coords,
   PA.nb.rep = 10, ### Tentar usar 30 rep se tiver mais de 32GB RAM, usar 7 se tiver menos de 16GB RAM ou 10rep se tiver 32GB; primeiramente usei 5 rep
-  PA.nb.absences = 1500, ### Tentar usar 10000 PA implica em precisar de mais 15GB RAM; antes usei 600 PA
-  PA.strategy = "jackknife",  # ← Sugerida
-  PA.dist.min = 3000,        # Distância mínima das presências (em metros)
+  PA.nb.absences = 600, ### Tentar usar 10000 PA implica em precisar de mais 15GB RAM; antes usei 600 PA
+  PA.strategy = "random",  # ← Sugerida
+  PA.dist.min = 20000,        # Distância mínima das presências (em metros)
   PA.dist.max = 150000,       # Distância máxima das presências
   filter.raster = TRUE,
   resp.name = "Vampyrum.spectrum"
@@ -138,7 +144,7 @@ imp_expl <- data.frame(
 mean_imp_var <- arrange(aggregate(var_imp ~ expl_var, data = imp_expl, FUN = mean), desc(var_imp))
 
 # Salvar importância com nomes corretos
-write.csv(mean_imp_var, "C:/Users/Administrador/Desktop/GAB/Mod/var_importance_todas_variaveis_teste42.csv", row.names = FALSE)
+write.csv(mean_imp_var, "C:/Users/Administrador/Desktop/GAB/Mod/var_importance_todas_variaveis_teste98.csv", row.names = FALSE)
 
 cat("Importância das variáveis (com nomes corretos):\n")
 print(mean_imp_var)
@@ -155,9 +161,6 @@ projections <- BIOMOD_Projection(
   new.env = env_data,
   models.chosen = "all"
 )
-
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste42_semCover_rep10_1500PA_FALSE_RFspecific"
-if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 proj_stack <- get_predictions(projections)
 proj_names <- names(proj_stack)
@@ -209,7 +212,7 @@ EMimp_expl <- data.frame(
 EMmean_imp_var <- arrange(aggregate(var_imp ~ expl_var, data = EMimp_expl, FUN = mean), desc(var_imp))
 
 # Salvar importância do ensemble com nomes corretos
-write.csv(EMmean_imp_var, "C:/Users/Administrador/Desktop/GAB/Mod/ensemble_var_importance_todas_variaveis_teste42.csv", row.names = FALSE)
+write.csv(EMmean_imp_var, "C:/Users/Administrador/Desktop/GAB/Mod/ensemble_var_importance_todas_variaveis_teste98.csv", row.names = FALSE)
 
 cat("Importância das variáveis no ensemble (com nomes corretos):\n")
 print(EMmean_imp_var)
@@ -231,7 +234,7 @@ EnsembleProj <- BIOMOD_EnsembleForecasting(
 
 # Salvar o ensemble
 ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble", "proj_ensemble_Vampyrum.spectrum_ensemble.tif"))
-writeRaster(ensemble_raster, file.path(output_dir, "ensemble_projection_todas_variaveis_teste42.tif"), overwrite = TRUE)
+writeRaster(ensemble_raster, file.path(output_dir, "ensemble_projection_todas_variaveis_teste98.tif"), overwrite = TRUE)
 
 # Plot do ensemble
 plot(EnsembleProj)
@@ -289,7 +292,7 @@ cat("  Valores negativos removidos:", sum(relevo_values < 0), "\n")
 cat("  Total de pixels válidos:", length(relevo_values), "\n")
 
 # ============================
-# MODELAGEM COMPLETA - ENSEMBLE COM 4 VARIÁVEIS (teste43)
+# MODELAGEM COMPLETA - ENSEMBLE COM 4 VARIÁVEIS (teste99)
 # ============================
 
 # ============================
@@ -315,7 +318,7 @@ library(rnaturalearthdata)
 # ============================
 
 ## Definir diretório de saída
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste43_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste99_ensemble"
 
 # Criar diretório se não existir
 if (!dir.exists(output_dir)) {
@@ -341,7 +344,7 @@ occ_data <- data.frame(
 )
 
 # Salvar dados de ocorrência
-write.csv(occ_data, file.path(output_dir, "dados_ocorrencia_teste43.csv"), row.names = FALSE)
+write.csv(occ_data, file.path(output_dir, "dados_ocorrencia_teste99.csv"), row.names = FALSE)
 
 cat("Dados de ocorrência carregados:", nrow(occ_data), "registros\n")
 
@@ -377,10 +380,10 @@ cat("Variáveis ambientais carregadas:\n")
 print(names(env_data4layers))
 
 # Salvar variáveis processadas
-writeRaster(vaporpressure, file.path(output_dir, "vaporpressure_processado_teste43.tif"), overwrite = TRUE)
-writeRaster(wind, file.path(output_dir, "wind_processado_teste43.tif"), overwrite = TRUE)
-writeRaster(relevo, file.path(output_dir, "relevo_processado_teste43.tif"), overwrite = TRUE)
-writeRaster(BIO7, file.path(output_dir, "BIO7_processado_teste43.tif"), overwrite = TRUE)
+writeRaster(vaporpressure, file.path(output_dir, "vaporpressure_processado_teste99.tif"), overwrite = TRUE)
+writeRaster(wind, file.path(output_dir, "wind_processado_teste99.tif"), overwrite = TRUE)
+writeRaster(relevo, file.path(output_dir, "relevo_processado_teste99.tif"), overwrite = TRUE)
+writeRaster(BIO7, file.path(output_dir, "BIO7_processado_teste99.tif"), overwrite = TRUE)
 
 # ============================
 # MODELAGEM BIOMOD2
@@ -403,7 +406,7 @@ biomod_data4layers <- BIOMOD_FormatingData(
 )
 
 # Salvar dados formatados
-saveRDS(biomod_data4layers, file.path(output_dir, "biomod_data4layers_teste43.rds"))
+saveRDS(biomod_data4layers, file.path(output_dir, "biomod_data4layers_teste99.rds"))
 
 ## BioMod2 Modeling
 cat("Iniciando modelagem com 5 algoritmos...\n")
@@ -421,7 +424,7 @@ myOptions <- BIOMOD_ModelingOptions(
 
 models_4layers <- BIOMOD_Modeling(
     biomod_data4layers,
-    modeling.id = "teste43", 
+    modeling.id = "teste99", 
     models = c('GLM', 'GAM', 'GBM', 'RF', 'MAXENT'), 
     CV.strategy = 'block',
     prevalence = 0.5,
@@ -430,7 +433,7 @@ models_4layers <- BIOMOD_Modeling(
 )
 
 # Salvar modelos
-saveRDS(models_4layers, file.path(output_dir, "models_4layers_teste43.rds"))
+saveRDS(models_4layers, file.path(output_dir, "models_4layers_teste99.rds"))
 
 cat("Modelagem concluída com sucesso!\n")
 
@@ -442,10 +445,10 @@ cat("Modelagem concluída com sucesso!\n")
 cat("Gerando gráficos de avaliação...\n")
 
 gg1_4layers <- bm_PlotEvalMean(models_4layers, metric.eval = c("TSS", "ROC"), dataset = "calibration", do.plot = TRUE)
-## ESSA LINHA NAO ESTA FUNCIONANDO - ggsave(file.path(output_dir, "eval_mean_calibration_4layers_teste43.png"), plot = gg1_4layers, width = 611, height = 354, dpi = 300)
+## ESSA LINHA NAO ESTA FUNCIONANDO - ggsave(file.path(output_dir, "eval_mean_calibration_4layers_teste99.png"), plot = gg1_4layers, width = 611, height = 354, dpi = 300)
 
 gg2_4layers <- bm_PlotEvalMean(models_4layers, metric.eval = c("TSS", "ROC"), dataset = "validation", do.plot = TRUE)
-## ESSA LINHA NAO ESTA FUNCIONANDO - ggsave(file.path(output_dir, "eval_mean_validation_4layers_teste43.png"), plot = gg2_4layers, width = 611, height = 354, dpi = 300)
+## ESSA LINHA NAO ESTA FUNCIONANDO - ggsave(file.path(output_dir, "eval_mean_validation_4layers_teste99.png"), plot = gg2_4layers, width = 611, height = 354, dpi = 300)
 
 ## Variables importance dos modelos individuais
 cat("Calculando importância das variáveis...\n")
@@ -461,7 +464,7 @@ mean_imp_var_4layers <- aggregate(var_imp ~ expl_var, data = imp_expl4, FUN = me
 mean_imp_var_4layers <- arrange(mean_imp_var_4layers, desc(var_imp))
 
 # Salvar importância das variáveis
-write.csv(mean_imp_var_4layers, file.path(output_dir, "var_importance_4layers_teste43.csv"), row.names = FALSE)
+write.csv(mean_imp_var_4layers, file.path(output_dir, "var_importance_4layers_teste99.csv"), row.names = FALSE)
 
 cat("Importância das variáveis (modelos individuais):\n")
 print(mean_imp_var_4layers)
@@ -475,13 +478,13 @@ cat("Gerando projeções dos modelos...\n")
 
 projections_4layers <- BIOMOD_Projection(
   bm.mod = models_4layers,
-  proj.name = "current_teste43",
+  proj.name = "current_teste99",
   new.env = env_data4layers,
   models.chosen = "all"
 ) 
 
 # Salvar projeções
-saveRDS(projections_4layers, file.path(output_dir, "projections_4layers_teste43.rds"))
+saveRDS(projections_4layers, file.path(output_dir, "projections_4layers_teste99.rds"))
 
 # Salvar mapas individuais
 proj_stack <- get_predictions(projections_4layers)
@@ -491,8 +494,8 @@ for (i in 1:terra::nlyr(proj_stack)) {
   camada <- proj_stack[[i]]
   nome <- proj_names[i]
   
-  out_tif <- file.path(output_dir, paste0("proj_", nome, "_teste43.tif"))
-  out_png <- file.path(output_dir, paste0("proj_", nome, "_teste43.png"))
+  out_tif <- file.path(output_dir, paste0("proj_", nome, "_teste99.tif"))
+  out_png <- file.path(output_dir, paste0("proj_", nome, "_teste99.png"))
   
   terra::writeRaster(camada, out_tif, overwrite = TRUE)
   
@@ -524,11 +527,11 @@ ensemble_4layers <- BIOMOD_EnsembleModeling(
 )
 
 # Salvar ensemble
-saveRDS(ensemble_4layers, file.path(output_dir, "ensemble_4layers_teste43.rds"))
+saveRDS(ensemble_4layers, file.path(output_dir, "ensemble_4layers_teste99.rds"))
 
 # Avaliações do ensemble
 ensemble_eval <- get_evaluations(ensemble_4layers)
-write.csv(ensemble_eval, file.path(output_dir, "ensemble_evaluations_teste43.csv"), row.names = FALSE)
+write.csv(ensemble_eval, file.path(output_dir, "ensemble_evaluations_teste99.csv"), row.names = FALSE)
 
 cat("Avaliação do ensemble:\n")
 print(ensemble_eval)
@@ -555,7 +558,7 @@ EMmean_imp_var4 <- arrange(EMmean_imp_var4, desc(var_imp))
 EMmean_imp_var4$expl_var <- names(env_data4layers)
 
 # Salvar importância do ensemble
-write.csv(EMmean_imp_var4, file.path(output_dir, "ensemble_var_importance_4layers_teste43.csv"), row.names = FALSE)
+write.csv(EMmean_imp_var4, file.path(output_dir, "ensemble_var_importance_4layers_teste99.csv"), row.names = FALSE)
 
 cat("Importância das variáveis no ensemble:\n")
 print(EMmean_imp_var4)
@@ -569,7 +572,7 @@ cat("Gerando projeção do ensemble...\n")
 
 myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble_4layers,
-  proj.name = "ensemble_teste43",
+  proj.name = "ensemble_teste99",
   models.chosen = "all",
   new.env = env_data4layers,
   binary.meth = c('TSS','ROC'),
@@ -577,11 +580,11 @@ myBiomodEnsembleProj <- BIOMOD_EnsembleForecasting(
 )
 
 # Salvar projeção do ensemble
-saveRDS(myBiomodEnsembleProj, file.path(output_dir, "ensemble_projection_4layers_teste43.rds"))
+saveRDS(myBiomodEnsembleProj, file.path(output_dir, "ensemble_projection_4layers_teste99.rds"))
 
 # Salvar raster do ensemble
-ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble_teste43", "proj_ensemble_teste43_Vampyrum.spectrum_ensemble.tif"))
-writeRaster(ensemble_raster, file.path(output_dir, "ensemble_projection_4layers_teste43.tif"), overwrite = TRUE)
+ensemble_raster <- stack(file.path(getwd(), "Vampyrum.spectrum", "proj_ensemble_teste99", "proj_ensemble_teste99_Vampyrum.spectrum_ensemble.tif"))
+writeRaster(ensemble_raster, file.path(output_dir, "ensemble_projection_4layers_teste99.tif"), overwrite = TRUE)
 
 cat("Projeção do ensemble salva com sucesso!\n")
 
@@ -757,7 +760,7 @@ evaluation_plot <- tss_violin / roc_violin +
                   theme = theme(plot.title = element_text(face = "bold", size = 16, hjust = 0.5)))
 
 # Salvar gráfico de avaliação
-ggsave(file.path(output_dir, "03_Confiabilidade_Modelos_teste43.png"), 
+ggsave(file.path(output_dir, "03_Confiabilidade_Modelos_teste99.png"), 
        evaluation_plot, width = 14, height = 10, dpi = 300)
 
 cat("Gráfico de confiabilidade salvo com sucesso!\n")
@@ -856,7 +859,7 @@ diagnostic_plot <- wrap_plots(
   widths = c(2, 1, 2, 1)
 ) + plot_annotation(title = "Diagnóstico das Variáveis Ambientais com Importância no Ensemble")
 
-ggsave(file.path(output_dir, "01_Diagnostico_Variaveis_teste43.png"), 
+ggsave(file.path(output_dir, "01_Diagnostico_Variaveis_teste99.png"), 
        diagnostic_plot, width = 16, height = 10, dpi = 300)
 
 # ============================
@@ -864,7 +867,7 @@ ggsave(file.path(output_dir, "01_Diagnostico_Variaveis_teste43.png"),
 # ============================
 
 # Carregar ensemble
-ensemble_path <- file.path(output_dir, "ensemble_projection_4layers_teste43.tif")
+ensemble_path <- file.path(output_dir, "ensemble_projection_4layers_teste99.tif")
 ensemble_raster <- rast(ensemble_path)
 
 # Mapa final
@@ -895,7 +898,7 @@ final_plot <- (suitability_map | importance_plot) / diagnostic_plot / evaluation
   plot_annotation(title = "RELATÓRIO COMPLETO - MODELAGEM DE NICHO ECOLÓGICO",
                   subtitle = "Vampyrum spectrum - Teste 27 (Incluindo Ensemble)")
 
-ggsave(file.path(output_dir, "04_Resumo_Completo_teste43.png"), 
+ggsave(file.path(output_dir, "04_Resumo_Completo_teste99.png"), 
        final_plot, width = 16, height = 22, dpi = 300)
 
 # ============================
@@ -903,7 +906,7 @@ ggsave(file.path(output_dir, "04_Resumo_Completo_teste43.png"),
 # ============================
 
 cat("\n", rep("=", 70), "\n")
-cat("RELATÓRIO FINAL - MODELAGEM CONCLUÍDA (teste43)\n")
+cat("RELATÓRIO FINAL - MODELAGEM CONCLUÍDA (teste99)\n")
 cat(rep("=", 70), "\n\n")
 
 cat("✓ Dados de ocorrência:", nrow(occ_data), "registros\n")
@@ -1169,15 +1172,15 @@ evaluation_plot_boxplot <- tss_boxplot / roc_boxplot +
                   theme = theme(plot.title = element_text(face = "bold", size = 16, hjust = 0.5)))
 
 # Salvar gráficos
-ggsave(file.path(output_dir, "03A_Confiabilidade_Modelos_Violino_teste43.png"), 
+ggsave(file.path(output_dir, "03A_Confiabilidade_Modelos_Violino_teste99.png"), 
        evaluation_plot_violin, width = 14, height = 10, dpi = 300)
 
-ggsave(file.path(output_dir, "03B_Confiabilidade_Modelos_Boxplot_teste43.png"), 
+ggsave(file.path(output_dir, "03B_Confiabilidade_Modelos_Boxplot_teste99.png"), 
        evaluation_plot_boxplot, width = 14, height = 10, dpi = 300)
 
 cat("Gráficos de confiabilidade salvos com sucesso!\n")
-cat("- 03A_Confiabilidade_Modelos_Violino_teste43.png (versão violino)\n")
-cat("- 03B_Confiabilidade_Modelos_Boxplot_teste43.png (versão boxplot)\n")
+cat("- 03A_Confiabilidade_Modelos_Violino_teste99.png (versão violino)\n")
+cat("- 03B_Confiabilidade_Modelos_Boxplot_teste99.png (versão boxplot)\n")
 
 # Mostrar estatísticas resumidas detalhadas
 cat("\nESTATÍSTICAS DETALHADAS DE AVALIAÇÃO:\n")
@@ -1234,7 +1237,7 @@ comparison_plot <- ggplot() +
        x = "Modelo", y = "Valor", color = "Métrica") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-ggsave(file.path(output_dir, "03C_Comparacao_Direta_Metricas_teste43.png"), 
+ggsave(file.path(output_dir, "03C_Comparacao_Direta_Metricas_teste99.png"), 
        comparison_plot, width = 12, height = 8, dpi = 300)
 
 # ============================
@@ -1244,7 +1247,7 @@ ggsave(file.path(output_dir, "03C_Comparacao_Direta_Metricas_teste43.png"),
 cat("Gerando painel final com violin plots AO LADO dos mapas das variáveis...\n")
 
 # 1. MAPA DE ADEQUABILIDADE DO ENSEMBLE
-ensemble_path <- file.path(output_dir, "ensemble_projection_4layers_teste43.tif")
+ensemble_path <- file.path(output_dir, "ensemble_projection_4layers_teste99.tif")
 ensemble_raster <- rast(ensemble_path)
 
 suitability_map <- ggplot() +
@@ -1402,8 +1405,8 @@ library(patchwork)
 cat("Extraindo métricas TSS e ROC dos modelos...\n")
 
 # Certifique-se de ter carregado os objetos previamente:
-# models_4layers <- readRDS(".../models_4layers_teste43.rds")
-# ensemble_4layers <- readRDS(".../ensemble_4layers_teste43.rds")
+# models_4layers <- readRDS(".../models_4layers_teste99.rds")
+# ensemble_4layers <- readRDS(".../ensemble_4layers_teste99.rds")
 
 model_evals <- get_evaluations(models_4layers)
 
@@ -1503,11 +1506,11 @@ print(evaluation_side)
 # ------------------------------------------------------
 # SALVAR O RESULTADO
 # ------------------------------------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste43_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste99_ensemble"
 
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
-ggsave(file.path(output_dir, "Avaliação_Compacta_TSS_ROC_teste43.png"),
+ggsave(file.path(output_dir, "Avaliação_Compacta_TSS_ROC_teste99.png"),
        evaluation_side, width = 12, height = 6, dpi = 300)
 
 cat("✅ Gráfico salvo com sucesso em:", output_dir, "\n")
@@ -1536,7 +1539,7 @@ final_panel_corrigido <- (suitability_map | importance_plot) /
   )
 
 # Salvar painel final corrigido
-ggsave(file.path(output_dir, "04_Painel_Final_Corrigido_LadoaLado_teste43.png"), 
+ggsave(file.path(output_dir, "04_Painel_Final_Corrigido_LadoaLado_teste99.png"), 
        final_panel_corrigido, width = 22, height = 24, dpi = 300)
 
 # 6. VERSÃO ALTERNATIVA - LAYOUT MAIS COMPACTO
@@ -1610,14 +1613,14 @@ final_panel_compacto <- (suitability_map | importance_plot) /
     theme = theme(plot.title = element_text(face = "bold", hjust = 0.5))
   )
 
-ggsave(file.path(output_dir, "04B_Painel_Compacto_LadoaLado_teste43.png"), 
+ggsave(file.path(output_dir, "04B_Painel_Compacto_LadoaLado_teste99.png"), 
        final_panel_compacto, width = 18, height = 20, dpi = 300)
 
 # 7. SALVAR PAINÉIS INDIVIDUAIS DAS VARIÁVEIS
 cat("Salvando painéis individuais das variáveis (mapa + violin lado a lado)...\n")
 
 for (varname in names(variable_side_panels)) {
-  ggsave(file.path(output_dir, paste0("05_Painel_", varname, "_LadoaLado_teste43.png")), 
+  ggsave(file.path(output_dir, paste0("05_Painel_", varname, "_LadoaLado_teste99.png")), 
          variable_side_panels[[varname]], width = 16, height = 8, dpi = 300)
 }
 
@@ -1639,9 +1642,9 @@ cat("  2. LINHA 2-3: Grid 2x2 com [Mapa | Violin] para cada variável\n")
 cat("  3. LINHA 4: Avaliação dos modelos [TSS | ROC]\n\n")
 
 cat("ARQUIVOS GERADOS:\n")
-cat("- 04_Painel_Final_Corrigido_LadoaLado_teste43.png (painel completo)\n")
-cat("- 04B_Painel_Compacto_LadoaLado_teste43.png (versão compacta)\n")
-cat("- 05_Painel_*_LadoaLado_teste43.png (painéis individuais das variáveis)\n\n")
+cat("- 04_Painel_Final_Corrigido_LadoaLado_teste99.png (painel completo)\n")
+cat("- 04B_Painel_Compacto_LadoaLado_teste99.png (versão compacta)\n")
+cat("- 05_Painel_*_LadoaLado_teste99.png (painéis individuais das variáveis)\n\n")
 
 cat("VISUALIZAÇÃO DAS VARIÁVEIS:\n")
 for(varname in names(env_stack_4layers)) {
