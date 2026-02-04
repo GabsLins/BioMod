@@ -1,6 +1,6 @@
 # ======================================================
 # Vampyrum spectrum – Modelos + Ensemble + Painel FINAL
-# (SCRIPT LIMPO / teste91 - corrigido p/ block CV)
+# (SCRIPT LIMPO / teste99) + THINNING 20 km
 # ======================================================
 
 # -----------------------------
@@ -21,49 +21,63 @@ library(viridis)
 set.seed(42)
 
 # -----------------------------
-# 1) Diretório (teste91)
+# 1) Diretório (teste99)
 # -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste91_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste99_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Output:", output_dir, "\n")
 
 # ======================================================
-# 2) Ocorrências (limpeza forte)
+# 2) Ocorrências + THINNING (20 km)
 # ======================================================
-occ_csv <- "C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All5.csv"
-occ <- read.csv(occ_csv, stringsAsFactors = FALSE)
+occ_csv <- "C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All4.csv"
+occ <- read.csv(occ_csv)
 
-# --- força longitude/latitude numéricas (lida com vírgula decimal) ---
-if (!("longitude" %in% names(occ)) || !("latitude" %in% names(occ))) {
-  stop("O CSV precisa ter colunas 'longitude' e 'latitude'.")
+coords_raw <- occ %>%
+  dplyr::select(longitude, latitude) %>%
+  dplyr::rename(x = longitude, y = latitude) %>%
+  dplyr::filter(is.finite(x), is.finite(y))
+
+cat("Ocorrências (brutas):", nrow(coords_raw), "\n")
+
+# ---- Thinning greedy por distância mínima (em metros) ----
+thin_points_min_dist <- function(df_xy, min_dist_m = 20000, crs_ll = 4326, crs_m = 3857) {
+  stopifnot(all(c("x","y") %in% names(df_xy)))
+  if (nrow(df_xy) <= 1) return(df_xy)
+
+  # Embaralha para não favorecer sempre os primeiros
+  df_xy <- df_xy[sample.int(nrow(df_xy)), , drop = FALSE]
+
+  pts_ll <- sf::st_as_sf(df_xy, coords = c("x","y"), crs = crs_ll, remove = FALSE)
+  pts_m  <- sf::st_transform(pts_ll, crs_m)  # unidade em metros (aprox.)
+
+  keep_idx <- integer(0)
+
+  for (i in seq_len(nrow(pts_m))) {
+    if (length(keep_idx) == 0) {
+      keep_idx <- c(keep_idx, i)
+      next
+    }
+    # checa se o ponto i está a <= min_dist_m de algum já mantido
+    near <- sf::st_is_within_distance(pts_m[i, ], pts_m[keep_idx, ], dist = min_dist_m)[[1]]
+    if (length(near) == 0) {
+      keep_idx <- c(keep_idx, i)
+    }
+  }
+
+  df_xy[keep_idx, , drop = FALSE]
 }
-occ$longitude <- as.numeric(gsub(",", ".", occ$longitude))
-occ$latitude  <- as.numeric(gsub(",", ".", occ$latitude))
 
-# --- mantém apenas coordenadas válidas ---
-coords <- occ %>%
-  transmute(x = longitude, y = latitude) %>%
-  filter(is.finite(x), is.finite(y))
+coords <- thin_points_min_dist(coords_raw, min_dist_m = 20000)
+coords <- coords %>% dplyr::arrange(x, y)
 
-# --- remove duplicatas exatas (mesmo x,y) ---
-coords_before <- nrow(coords)
-coords <- coords %>% distinct(x, y, .keep_all = TRUE)
-coords_after <- nrow(coords)
+cat("Ocorrências (após thinning 20 km):", nrow(coords), "\n")
 
-coords <- as.data.frame(coords)
-rownames(coords) <- NULL
-
-cat("Ocorrências válidas:", coords_before, "\n")
-cat("Ocorrências após remover duplicatas exatas:", coords_after, "\n")
-
-# resposta (presença)
 resp.var <- rep(1, nrow(coords))
-stopifnot(nrow(coords) == length(resp.var))
 
-# salva ocorrências usadas
 write.csv(
-  data.frame(species = "Vampyrum_spectrum", lon = coords$x, lat = coords$y),
-  file.path(output_dir, "dados_ocorrencia_teste91.csv"),
+  data.frame(species="Vampyrum_spectrum", lon=coords$x, lat=coords$y),
+  file.path(output_dir, "dados_ocorrencia_teste99.csv"),
   row.names = FALSE
 )
 
@@ -79,127 +93,112 @@ prep_layer <- function(path, ref = NULL) {
   r
 }
 
-BIO7   <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
-vapor  <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/meanvaporpressure.tif", BIO7)
-wind   <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif", BIO7)
-relevo <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif", BIO7)
+BIO7  <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
+vapor <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/meanvaporpressure.tif", BIO7)
+wind  <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif", BIO7)
+relevo<- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif", BIO7)
 
 relevo[relevo < 0] <- NA
 
 env <- raster::stack(vapor, wind, relevo, BIO7)
-names(env) <- c("Pressao_Vapor","Vento","Relevo","Variacao_Temperatura")
+names(env) <- c("Vapor_Pressure","Wind","Elevation","Temperature_Variation")
 cat("Layers:", paste(names(env), collapse = ", "), "\n")
 
-# checkpoints
-raster::writeRaster(vapor,  file.path(output_dir, "Pressao_Vapor.tif"), overwrite = TRUE)
-raster::writeRaster(wind,   file.path(output_dir, "Vento.tif"), overwrite = TRUE)
-raster::writeRaster(relevo, file.path(output_dir, "Relevo.tif"), overwrite = TRUE)
-raster::writeRaster(BIO7,   file.path(output_dir, "BIO7.tif"), overwrite = TRUE)
+# checkpoints das layers
+raster::writeRaster(vapor, file.path(output_dir, "Vapor_Pressure.tif"), overwrite = TRUE)
+raster::writeRaster(wind,  file.path(output_dir, "Wind.tif"), overwrite = TRUE)
+raster::writeRaster(relevo,file.path(output_dir, "Elevation.tif"), overwrite = TRUE)
+raster::writeRaster(BIO7,  file.path(output_dir, "BIO7.tif"), overwrite = TRUE)
 
 # ======================================================
 # 4) BIOMOD_FormatingData (com PA)
 # ======================================================
 biomod_data <- BIOMOD_FormatingData(
-  resp.var      = resp.var,
-  expl.var      = env,
-  resp.xy       = coords,
-  PA.nb.rep     = 10,
-  PA.nb.absences= 600,
-  PA.strategy   = "random",
-  PA.dist.min   = 20000,
-  PA.dist.max   = 150000,
+  resp.var = resp.var,
+  expl.var = env,
+  resp.xy = coords,
+  PA.nb.rep = 10,
+  PA.nb.absences = 1000,
+  PA.strategy = "random",
+  PA.dist.min = 20000,
+  PA.dist.max = 150000,
   filter.raster = TRUE,
-  resp.name     = "Vampyrum.spectrum"
+  resp.name = "Vampyrum.spectrum"
 )
 
-saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste91.rds"))
-
-# -------- CHECK CRÍTICO (evita erro de row.names no block) ----------
-cat("\n==== CHECK biomod_data ====\n")
-cat("coord:", nrow(biomod_data@coord), "\n")
-cat("data.species:", nrow(biomod_data@data.species), "\n")
-if ("PA.table" %in% slotNames(biomod_data)) cat("PA.table:", nrow(biomod_data@PA.table), "\n")
-cat("dup rownames(coord)?", any(duplicated(rownames(biomod_data@coord))), "\n")
-cat("dup rownames(data.species)?", any(duplicated(rownames(biomod_data@data.species))), "\n")
-
-# força rownames “limpos” dentro do objeto (isso costuma resolver o block CV)
-rownames(biomod_data@coord)         <- NULL
-rownames(biomod_data@data.species)  <- NULL
-if ("PA.table" %in% slotNames(biomod_data)) rownames(biomod_data@PA.table) <- NULL
-
-saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste91_rownameFix.rds"))
+saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste99.rds"))
 
 # ======================================================
-# 5) Modelagem (5 algoritmos) – biomod2 novo
+# 5) Modelagem
 # ======================================================
-# Opções padrão compatíveis com sua versão (strategy=default)
-myOptions <- bm_ModelingOptions(
-  strategy  = "default",
-  data.type = "binary",
-  models    = c("GLM","GAM","GBM","RF","MAXENT")
+myOptions <- BIOMOD_ModelingOptions(
+  RF  = list(n.trees = 500, mtry = 2, nodesize = 20, maxnodes = 20),
+  GBM = list(n.trees = 2000, interaction.depth = 2, shrinkage = 0.005,
+             bag.fraction = 0.5, n.minobsinnode = 10),
+  MAXENT = list(betamultiplier = 3, features = "lq"),
+  GLM = list(type = "simple", test = "BIC"),
+  GAM = list(k = 3)
 )
-
-# >>> Se der erro no block na sua versão, troque para "random" aqui:
-CV_STRATEGY_USE <- "block"  # ou "random"
 
 models <- BIOMOD_Modeling(
-  bm.format   = biomod_data,
-  models      = c("GLM","GAM","GBM","RF","MAXENT"),
-  OPT.user    = myOptions,
-  CV.strategy = "random",
-  CV.nb.rep   = 5,
-  prevalence  = 0.5,
+  biomod_data,
+  models = c("GLM","GAM","GBM","RF","MAXENT"),
+  bm.options = myOptions,
+  CV.strategy = "block",
+  CV.nb.rep = 5,
+  prevalence = 0.5,
   metric.eval = c("TSS","ROC"),
-  var.import  = 3,
-  nb.cpu      = 1
+  var.import = 3
 )
 
-saveRDS(models, file.path(output_dir, "models_teste91.rds"))
+saveRDS(models, file.path(output_dir, "models_teste99.rds"))
 
 # ======================================================
 # 6) Ensemble
 # ======================================================
 ensemble <- BIOMOD_EnsembleModeling(
-  bm.mod              = models,
-  models.chosen       = "all",
-  em.by               = "all",
-  em.algo             = c("EMmean"),
-  metric.select       = c("TSS","ROC"),
-  metric.select.thresh= c(0.5, 0.7),
-  var.import          = 3
+  bm.mod = models,
+  models.chosen = "all",
+  em.by = "all",
+  em.algo = c("EMmean"),
+  metric.select = c("TSS","ROC"),
+  metric.select.thresh = c(0.5, 0.7),
+  var.import = 3
 )
 
-saveRDS(ensemble, file.path(output_dir, "ensemble_teste91.rds"))
+saveRDS(ensemble, file.path(output_dir, "ensemble_teste99.rds"))
 
 # ======================================================
-# 7) Ensemble Forecasting
+# 7) Ensemble Forecasting (RASTER ROBUSTO)
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
-  bm.em     = ensemble,
-  proj.name = "current_teste91",
-  new.env   = env
+  bm.em = ensemble,
+  proj.name = "current_teste99",
+  new.env = env
 )
-saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste91.rds"))
+saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste99.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
-# Tenta pegar raster robusto
+# 1) tentativa direta
 ensemble_raster_single <- tryCatch(terra::rast(pred_obj)[[1]], error = function(e) NULL)
+
+# 2) fallback via Raster*
 if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)) {
   rs <- tryCatch(raster::stack(pred_obj), error = function(e) NULL)
   if (!is.null(rs)) ensemble_raster_single <- terra::rast(rs)[[1]]
 }
+
+# 3) checagem final
 if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)) {
-  stop("Não consegui obter raster do ensemble com valores.")
+  stop("Não consegui obter raster do ensemble com valores. Veja class/str de get_predictions(ensemble_proj).")
 }
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_teste91.tif"),
+  file.path(output_dir, "ensemble_suitability_teste99.tif"),
   overwrite = TRUE
 )
-
-cat("\n✅ Fim: modelos + ensemble gerados em:", output_dir, "\n")
 
 # ======================================================
 # 8) Avaliações (Modelos: validation | Ensemble: calibration)
@@ -230,7 +229,7 @@ importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   summarise(importance = mean(var.imp, na.rm = TRUE), .groups="drop") %>%
   rename(var = expl.var)
 
-write.csv(importance, file.path(output_dir, "importance_teste91.csv"), row.names = FALSE)
+write.csv(importance, file.path(output_dir, "importance_teste99.csv"), row.names = FALSE)
 
 importance_plot <- ggplot(
   importance %>% arrange(desc(importance)),
@@ -354,6 +353,7 @@ make_var_panel <- function(r, varname, coords_obj, pa_obj, imp_df) {
 var_panels <- lapply(names(env), function(v) {
   make_var_panel(env[[v]], v, coords, pa_pts, importance)
 })
+names(var_panels) <- names(env)
 
 vars_panel <- wrap_plots(var_panels, ncol=2) +
   plot_annotation(
@@ -429,7 +429,7 @@ final_panel <- (suitability_map | importance_plot) /
     theme = theme(plot.title = element_text(size=14, face="bold"))
   )
 
-out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste91.png")
+out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste99.png")
 cat("Salvando:", out_panel, "\n")
 
 ok <- tryCatch({
@@ -452,7 +452,6 @@ cat("✅ Concluído. Arquivos em:", output_dir, "\n")
 # ======================================================
 # 14) SAVE PANEL PARTS (PNG + TIF)
 # ======================================================
-
 parts_dir <- file.path(output_dir, "panel_parts")
 dir.create(parts_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -478,16 +477,15 @@ save_plot_png_tif <- function(p, filename_base, w = 12, h = 8, dpi = 300) {
 }
 
 # ---- Save main panel parts ----
-save_plot_png_tif(final_panel,      "00_final_panel",        w = 22, h = 24)
-save_plot_png_tif(suitability_map,  "01_ensemble_map",       w = 12, h = 8)
-save_plot_png_tif(importance_plot,  "02_variable_importance",w = 10, h = 6)
-save_plot_png_tif(vars_panel,       "03_predictor_panels",   w = 18, h = 12)
-save_plot_png_tif(tss_plot,         "04_TSS_models",         w = 10, h = 6)
-save_plot_png_tif(roc_plot,         "05_ROC_models",         w = 10, h = 6)
-save_plot_png_tif(evaluation_panel, "06_metrics_panel",      w = 16, h = 6)
+save_plot_png_tif(final_panel,      "00_final_panel",         w = 22, h = 24)
+save_plot_png_tif(suitability_map,  "01_ensemble_map",        w = 12, h = 8)
+save_plot_png_tif(importance_plot,  "02_variable_importance", w = 10, h = 6)
+save_plot_png_tif(vars_panel,       "03_predictor_panels",    w = 18, h = 12)
+save_plot_png_tif(tss_plot,         "04_TSS_models",          w = 10, h = 6)
+save_plot_png_tif(roc_plot,         "05_ROC_models",          w = 10, h = 6)
+save_plot_png_tif(evaluation_panel, "06_metrics_panel",       w = 16, h = 6)
 
 # ---- Save each predictor panel separately ----
-# var_panels is a list; names are predictors
 if (exists("var_panels") && length(var_panels) > 0) {
   for (nm in names(var_panels)) {
     safe_nm <- gsub("[^A-Za-z0-9_\\-]+", "_", nm)
@@ -496,4 +494,3 @@ if (exists("var_panels") && length(var_panels) > 0) {
 }
 
 cat("✅ Saved all panel parts to:", parts_dir, "\n")
-
