@@ -1,4 +1,179 @@
+### CASO NAO TENHA O POINTSAMPLE AINDA:
+
 # ======================================================
+# POINTSAMPLE (FULL STACK) – Vampyrum spectrum
+# Gera tabela para correlação Pearson + heatmap
+# Formato: Specie | latitude | longitude | variáveis...
+# ======================================================
+
+library(raster)
+library(terra)
+library(dplyr)
+library(sf)
+
+set.seed(42)
+
+# ====== TEMP DIR (ajuste se puder para um disco com espaço) ======
+dir.create("C:/R_TMP", showWarnings = FALSE, recursive = TRUE)
+raster::rasterOptions(tmpdir = "C:/R_TMP")
+terra::terraOptions(tempdir = "C:/R_TMP")
+
+# -----------------------------
+# Paths (ajuste se necessário)
+# -----------------------------
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_Correlacao"
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+
+occ_csv <- "C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All5.csv"
+
+# Arquivo de saída (novo pointsample full stack)
+pointsample_out <- file.path(output_dir, "pointsample_fullstack.csv")
+
+# ======================================================
+# 1) Ocorrências (mesma ideia do seu pipeline)
+#    (se você quiser SEM thinning, é só usar coords_raw direto)
+# ======================================================
+occ <- read.csv(occ_csv)
+
+coords_raw <- occ %>%
+  dplyr::select(longitude, latitude) %>%
+  dplyr::rename(x = longitude, y = latitude) %>%
+  dplyr::filter(is.finite(x), is.finite(y))
+
+cat("Ocorrências (brutas):", nrow(coords_raw), "\n")
+
+thin_points_min_dist <- function(df_xy, min_dist_m = 20000, crs_ll = 4326, crs_m = 3857) {
+  stopifnot(all(c("x","y") %in% names(df_xy)))
+  if (nrow(df_xy) <= 1) return(df_xy)
+
+  df_xy <- df_xy[sample.int(nrow(df_xy)), , drop = FALSE]
+
+  pts_ll <- sf::st_as_sf(df_xy, coords = c("x","y"), crs = crs_ll, remove = FALSE)
+  pts_m  <- sf::st_transform(pts_ll, crs_m)
+
+  keep_idx <- integer(0)
+  for (i in seq_len(nrow(pts_m))) {
+    if (length(keep_idx) == 0) {
+      keep_idx <- c(keep_idx, i)
+      next
+    }
+    near <- sf::st_is_within_distance(pts_m[i, ], pts_m[keep_idx, ], dist = min_dist_m)[[1]]
+    if (length(near) == 0) keep_idx <- c(keep_idx, i)
+  }
+
+  df_xy[keep_idx, , drop = FALSE]
+}
+
+coords <- thin_points_min_dist(coords_raw, min_dist_m = 20000) %>%
+  dplyr::arrange(x, y)
+
+cat("Ocorrências (thinning 20 km):", nrow(coords), "\n")
+
+# ======================================================
+# 2) Camadas ambientais (FULL STACK) — igual ao seu código
+# ======================================================
+ext_america <- raster::extent(-170, -26, -56, 72)
+
+prep_layer <- function(path, ref = NULL, ext = ext_america, method = "bilinear") {
+  if (!file.exists(path)) stop("Arquivo não encontrado: ", path)
+  r <- raster::raster(path)
+  r <- raster::crop(r, ext)
+  if (!is.null(ref)) r <- raster::resample(r, ref, method = method)
+  return(r)
+}
+
+ref_path <- "C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/bio07.tif"
+ref <- prep_layer(ref_path, ref = NULL)
+
+# --- variáveis (nomes exatamente como você pediu) ---
+precipBIO12     <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/bio12.tif", ref)
+maxtemperature  <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/tmax_annual_mean.tif", ref)
+meantemperature <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/tmean_annual_mean.tif", ref)
+mintemperature  <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/tmin_annual_mean.tif", ref)
+vaporpressure   <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/vapr_annual_mean.tif", ref)
+wind            <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/wind_annual_mean.tif", ref)
+relevo          <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif", ref)
+NDVI            <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/NDVI/NDVI_america.tif", ref)
+LAI_MAX         <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/LAI/LAI_Max_2023.tif", ref)
+LAI_MEAN        <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/LAI/LAI_Mean_2023.tif", ref)
+LAI_MIN         <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/LAI/LAI_Min_2023.tif", ref)
+LAI_SEASON      <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/LAI/LAI_Seasonality_2023.tif", ref)
+LAI_StdDev      <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/LAI/LAI_StdDev_2023.tif", ref)
+
+BIO2  <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio02.tif", ref)
+BIO3  <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio03.tif", ref)
+BIO4  <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio04.tif", ref)
+BIO5  <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio05.tif", ref)
+BIO6  <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio06.tif", ref)
+BIO7  <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio07.tif", ref)
+BIO8  <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio08.tif", ref)
+BIO9  <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio09.tif", ref)
+BIO10 <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio10.tif", ref)
+BIO11 <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio11.tif", ref)
+BIO13 <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio13.tif", ref)
+BIO14 <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio14.tif", ref)
+BIO15 <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio15.tif", ref)
+BIO16 <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio16.tif", ref)
+BIO17 <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio17.tif", ref)
+BIO18 <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio18.tif", ref)
+BIO19 <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio19.tif", ref)
+
+# limpeza relevo
+relevo[relevo < 0] <- NA
+
+# stack com nomes “compatíveis” para correlação
+env <- raster::stack(
+  precipBIO12, maxtemperature, meantemperature, mintemperature,
+  vaporpressure, wind, relevo, NDVI,
+  LAI_MAX, LAI_MEAN, LAI_MIN, LAI_SEASON, LAI_StdDev,
+  BIO2, BIO3, BIO4, BIO5, BIO6, BIO7, BIO8, BIO9, BIO10, BIO11,
+  BIO13, BIO14, BIO15, BIO16, BIO17, BIO18, BIO19
+)
+
+names(env) <- c(
+  "precipBIO12", "maxtemperature", "meantemperature", "mintemperature",
+  "vaporpressure", "wind", "relevo", "NDVI",
+  "LAI_MAX", "LAI_MEAN", "LAI_MIN", "LAI_SEASON", "LAI_StdDev",
+  "BIO2","BIO3","BIO4","BIO5","BIO6","BIO7","BIO8","BIO9","BIO10","BIO11",
+  "BIO13","BIO14","BIO15","BIO16","BIO17","BIO18","BIO19"
+)
+
+cat("Layers (env):", nlayers(env), "\n")
+
+# ======================================================
+# 3) Extrair valores (pointsample)
+# ======================================================
+# Usando terra::extract (mais robusto/rápido), convertendo stack raster->terra
+env_terra <- terra::rast(env)
+
+# coords em SpatVector (EPSG:4326)
+pts <- terra::vect(coords, geom = c("x","y"), crs = "EPSG:4326")
+
+vals <- terra::extract(env_terra, pts)  # retorna col "ID" + variáveis
+vals$ID <- NULL
+
+pointsample <- data.frame(
+  Specie    = "Vampyrum_spectrum",
+  latitude  = coords$y,
+  longitude = coords$x,
+  vals
+)
+
+# (opcional) remover linhas com NA em qualquer variável
+# pointsample <- pointsample %>% tidyr::drop_na()
+
+write.csv(pointsample, pointsample_out, row.names = FALSE)
+cat("✅ pointsample salvo em:", pointsample_out, "\n")
+cat("Dimensão:", nrow(pointsample), "x", ncol(pointsample), "\n")
+
+######################################################################
+######################################################################
+######################################################################
+## AGORA O HEAT MAP
+######################################################################
+######################################################################
+######################################################################
+#======================================================
 # CORRELAÇÃO AMBIENTAL + HEATMAP (Pearson)
 # Vampyrum spectrum
 # ======================================================
@@ -31,11 +206,11 @@ pointsample <- read.csv(pointsample_file)
 # Variáveis de interesse
 # -----------------------------
 variaveis_desejadas <- c(
-    "precipBIO12", "maxtemperature", "meantemperature", "mintemperature",
-    "vaporpressure", "wind", "relevo", "NDVI", "LAI",
-    "BIO2", "BIO3", "BIO4", "BIO5", "BIO6", "BIO7",
-    "BIO8", "BIO9", "BIO10", "BIO11",
-    "BIO13", "BIO14", "BIO15", "BIO16", "BIO17", "BIO18", "BIO19"
+  "precipBIO12","maxtemperature","meantemperature","mintemperature",
+  "vaporpressure","wind","relevo","NDVI",
+  "LAI_MAX","LAI_MEAN","LAI_MIN","LAI_SEASON","LAI_StdDev",
+  "BIO2","BIO3","BIO4","BIO5","BIO6","BIO7","BIO8","BIO9","BIO10","BIO11",
+  "BIO13","BIO14","BIO15","BIO16","BIO17","BIO18","BIO19"
 )
 
 variaveis_presentes <- variaveis_desejadas[
