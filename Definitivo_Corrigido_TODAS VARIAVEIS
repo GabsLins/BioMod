@@ -1,6 +1,8 @@
 # ======================================================
 # Vampyrum spectrum – Modelos + Ensemble + Painel FINAL
 # (SCRIPT LIMPO / teste101) + THINNING 20 km
+# FULL STACK + economia de disco (sem full models)
+# Mantém panel_parts em PNG + TIF (MAS SEM TIF por variável)
 # ======================================================
 
 # -----------------------------
@@ -19,6 +21,11 @@ library(rnaturalearthdata)
 library(viridis)
 
 set.seed(42)
+
+# ====== TEMP DIR COM ESPAÇO (muito importante) ======
+dir.create("C:/R_TMP", showWarnings = FALSE, recursive = TRUE)
+raster::rasterOptions(tmpdir = "C:/R_TMP")
+terra::terraOptions(tempdir = "C:/R_TMP")
 
 # -----------------------------
 # 1) Diretório (teste101)
@@ -40,36 +47,30 @@ coords_raw <- occ %>%
 
 cat("Ocorrências (brutas):", nrow(coords_raw), "\n")
 
-# ---- Thinning greedy por distância mínima (em metros) ----
 thin_points_min_dist <- function(df_xy, min_dist_m = 20000, crs_ll = 4326, crs_m = 3857) {
   stopifnot(all(c("x","y") %in% names(df_xy)))
   if (nrow(df_xy) <= 1) return(df_xy)
 
-  # Embaralha para não favorecer sempre os primeiros
   df_xy <- df_xy[sample.int(nrow(df_xy)), , drop = FALSE]
 
   pts_ll <- sf::st_as_sf(df_xy, coords = c("x","y"), crs = crs_ll, remove = FALSE)
-  pts_m  <- sf::st_transform(pts_ll, crs_m)  # unidade em metros (aprox.)
+  pts_m  <- sf::st_transform(pts_ll, crs_m)
 
   keep_idx <- integer(0)
-
   for (i in seq_len(nrow(pts_m))) {
     if (length(keep_idx) == 0) {
       keep_idx <- c(keep_idx, i)
       next
     }
-    # checa se o ponto i está a <= min_dist_m de algum já mantido
     near <- sf::st_is_within_distance(pts_m[i, ], pts_m[keep_idx, ], dist = min_dist_m)[[1]]
-    if (length(near) == 0) {
-      keep_idx <- c(keep_idx, i)
-    }
+    if (length(near) == 0) keep_idx <- c(keep_idx, i)
   }
 
   df_xy[keep_idx, , drop = FALSE]
 }
 
-coords <- thin_points_min_dist(coords_raw, min_dist_m = 20000)
-coords <- coords %>% dplyr::arrange(x, y)
+coords <- thin_points_min_dist(coords_raw, min_dist_m = 20000) %>%
+  dplyr::arrange(x, y)
 
 cat("Ocorrências (após thinning 20 km):", nrow(coords), "\n")
 
@@ -84,33 +85,22 @@ write.csv(
 # ======================================================
 # 3) Camadas ambientais (PADRONIZAÇÃO) — FULL STACK
 # ======================================================
-
 ext_america <- raster::extent(-170, -26, -56, 72)
 
 prep_layer <- function(path, ref = NULL, ext = ext_america, method = "bilinear") {
-
   if (!file.exists(path)) stop("Arquivo não encontrado: ", path)
 
   r <- raster::raster(path)
-
-  # crop primeiro (reduz memória)
   r <- raster::crop(r, ext)
-
-  # resample para o grid de referência (se informado)
-  if (!is.null(ref)) {
-    r <- raster::resample(r, ref, method = method)
-  }
-
+  if (!is.null(ref)) r <- raster::resample(r, ref, method = method)
   return(r)
 }
 
-# --- 3.1) Referência (grid padrão) ---
-# Escolha uma layer “base” com boa cobertura e resolução.
-# Aqui vou usar BIO7 (seu arquivo final), mas pode trocar.
+# Referência (grid)
 ref_path <- "C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/bio07.tif"
 ref <- prep_layer(ref_path, ref = NULL)
 
-# --- 3.2) Carregar TODAS as camadas no MESMO grid ---
+# Carregar TODAS as camadas no MESMO grid
 precipBIO12     <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/bio12.tif", ref)
 maxtemperature  <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/tmax_annual_mean.tif", ref)
 meantemperature <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/tmean_annual_mean.tif", ref)
@@ -143,11 +133,8 @@ BIO17 <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FIN
 BIO18 <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio18.tif", ref)
 BIO19 <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio19.tif", ref)
 
-# --- 3.3) Limpeza específica ---
-# relevo negativo -> NA
 relevo[relevo < 0] <- NA
 
-# --- 3.4) Stack final ---
 env <- raster::stack(
   precipBIO12,
   maxtemperature, meantemperature, mintemperature,
@@ -171,21 +158,31 @@ names(env) <- c(
 cat("Layers (env):", nlayers(env), "\n")
 cat("Names:", paste(names(env), collapse = ", "), "\n")
 
-# --- 3.5) Checagens rápidas (recomendado) ---
-# Remove layers com variância zero (ou totalmente NA após crop)
+# Remove layers com SD=0 ou NA total
 rm_idx <- c()
 for (i in 1:nlayers(env)) {
   v <- tryCatch(raster::cellStats(env[[i]], stat = "sd", na.rm = TRUE), error = function(e) NA_real_)
   if (!is.finite(v) || is.na(v) || v == 0) rm_idx <- c(rm_idx, i)
 }
-
 if (length(rm_idx) > 0) {
   cat("Removendo layers sem variação / NA total:", paste(names(env)[rm_idx], collapse=", "), "\n")
   env <- env[[-rm_idx]]
 }
 
-# checkpoint: salvar stack (opcional, mas ajuda debug)
-# raster::writeRaster(env, filename = file.path(output_dir, "ENV_STACK.tif"), overwrite = TRUE)
+# Relatórios leves para triagem
+write.csv(data.frame(layer = names(env)),
+          file.path(output_dir, "kept_layers_teste101.csv"),
+          row.names = FALSE)
+
+env_summary <- do.call(rbind, lapply(names(env), function(nm) {
+  r <- env[[nm]]
+  na_pct <- tryCatch(100 * raster::cellStats(is.na(r), stat = "mean"), error=function(e) NA_real_)
+  mn <- tryCatch(raster::cellStats(r, stat = "min", na.rm = TRUE), error=function(e) NA_real_)
+  mx <- tryCatch(raster::cellStats(r, stat = "max", na.rm = TRUE), error=function(e) NA_real_)
+  sd <- tryCatch(raster::cellStats(r, stat = "sd",  na.rm = TRUE), error=function(e) NA_real_)
+  data.frame(layer = nm, na_pct = na_pct, min = mn, max = mx, sd = sd)
+}))
+write.csv(env_summary, file.path(output_dir, "env_summary_teste101.csv"), row.names = FALSE)
 
 # ======================================================
 # 4) BIOMOD_FormatingData (com PA)
@@ -209,6 +206,7 @@ saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste101.rds"))
 # 5) Modelagem
 # ======================================================
 mtry_auto <- max(2, floor(sqrt(raster::nlayers(env))))
+cat("RF mtry_auto =", mtry_auto, " | nlayers(env) =", raster::nlayers(env), "\n")
 
 myOptions <- BIOMOD_ModelingOptions(
   RF  = list(n.trees = 500, mtry = mtry_auto, nodesize = 20, maxnodes = 20),
@@ -218,7 +216,6 @@ myOptions <- BIOMOD_ModelingOptions(
   GLM = list(type = "simple", test = "BIC"),
   GAM = list(k = 3)
 )
-cat("RF mtry_auto =", mtry_auto, " | nlayers(env) =", raster::nlayers(env), "\n")
 
 models <- BIOMOD_Modeling(
   biomod_data,
@@ -228,7 +225,8 @@ models <- BIOMOD_Modeling(
   CV.nb.rep = 5,
   prevalence = 0.5,
   metric.eval = c("TSS","ROC"),
-  var.import = 3
+  var.import = 3,
+  do.full.models = FALSE
 )
 
 saveRDS(models, file.path(output_dir, "models_teste101.rds"))
@@ -260,16 +258,11 @@ saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste101.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
-# 1) tentativa direta
 ensemble_raster_single <- tryCatch(terra::rast(pred_obj)[[1]], error = function(e) NULL)
-
-# 2) fallback via Raster*
 if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)) {
   rs <- tryCatch(raster::stack(pred_obj), error = function(e) NULL)
   if (!is.null(rs)) ensemble_raster_single <- terra::rast(rs)[[1]]
 }
-
-# 3) checagem final
 if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)) {
   stop("Não consegui obter raster do ensemble com valores. Veja class/str de get_predictions(ensemble_proj).")
 }
@@ -277,11 +270,12 @@ if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)
 terra::writeRaster(
   ensemble_raster_single,
   file.path(output_dir, "ensemble_suitability_teste101.tif"),
-  overwrite = TRUE
+  overwrite = TRUE,
+  gdal = c("COMPRESS=LZW")
 )
 
 # ======================================================
-# 8) Avaliações (Modelos: validation | Ensemble: calibration)
+# 8) Avaliações
 # ======================================================
 ev_models <- get_evaluations(models)
 df_models <- ev_models %>%
@@ -289,7 +283,6 @@ df_models <- ev_models %>%
   dplyr::transmute(Modelo = algo, Metrica = metric.eval, Valor = validation) %>%
   dplyr::filter(is.finite(Valor), !is.na(Valor))
 
-# ensemble: no seu caso, validation vem NA, então usar calibration
 ev_ens <- get_evaluations(ensemble)
 df_ens <- ev_ens %>%
   dplyr::filter(algo == "EMmean", metric.eval %in% c("TSS","ROC")) %>%
@@ -302,7 +295,7 @@ ens_tss <- ifelse(length(ens_tss) > 0, ens_tss[1], NA_real_)
 ens_roc <- ifelse(length(ens_roc) > 0, ens_roc[1], NA_real_)
 
 # ======================================================
-# 9) Importância das variáveis (com valores)
+# 9) Importância das variáveis
 # ======================================================
 importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   group_by(expl.var) %>%
@@ -325,7 +318,7 @@ importance_plot <- ggplot(
   theme(plot.title = element_text(face="bold", hjust=0.5))
 
 # ======================================================
-# 10) Pseudo-ausências (ROBUSTO via @PA.table)
+# 10) Pseudo-ausências
 # ======================================================
 rep_id <- 1
 pa_colname <- paste0("PA", rep_id)
@@ -350,7 +343,7 @@ colnames(pa_pts) <- c("x","y")
 cat("Pseudo-ausências (rep", rep_id, "):", nrow(pa_pts), "\n")
 
 # ======================================================
-# 11) Painel por variável (SEM geom_spatraster)
+# 11) Painel por variável
 # ======================================================
 as_xy_df <- function(obj) {
   df <- as.data.frame(obj)
@@ -394,7 +387,6 @@ make_var_panel <- function(r, varname, coords_obj, pa_obj, imp_df) {
   imp_val <- imp_df %>% dplyr::filter(var == varname) %>% dplyr::pull(importance)
   imp_txt <- ifelse(length(imp_val)>0, sprintf(" | Imp: %.3f", imp_val[1]), " | Imp: NA")
 
-  # mapa: converter raster -> df e plotar
   rr_crop <- tryCatch(terra::crop(rr, terra::ext(-120, -30, -60, 30)), error=function(e) NULL)
   rr_use <- rr_crop
   if (is.null(rr_use) || !terra::hasValues(rr_use)) rr_use <- rr
@@ -447,7 +439,6 @@ vars_panel <- wrap_plots(var_panels, ncol=2) +
 countries <- rnaturalearth::ne_countries(scale="medium", returnclass="sf")
 pres_coords <- data.frame(lon = coords$x, lat = coords$y)
 
-# Mapa ensemble (sem geom_spatraster)
 target_ext <- terra::ext(-120, -30, -60, 30)
 ens_crop <- tryCatch(terra::crop(ensemble_raster_single, target_ext), error=function(e) NULL)
 use_r <- ens_crop
@@ -505,7 +496,7 @@ final_panel <- (suitability_map | importance_plot) /
   vars_panel /
   evaluation_panel +
   plot_annotation(
-    title="title = PANEL – Ecological Niche Modeling",
+    title="PANEL – Ecological Niche Modeling",
     theme = theme(plot.title = element_text(size=14, face="bold"))
   )
 
@@ -530,7 +521,7 @@ if (!ok) {
 cat("✅ Concluído. Arquivos em:", output_dir, "\n")
 
 # ======================================================
-# 14) SAVE PANEL PARTS (PNG + TIF)
+# 14) SAVE PANEL PARTS (PNG + TIF)  (SEM TIF por variável)
 # ======================================================
 parts_dir <- file.path(output_dir, "panel_parts")
 dir.create(parts_dir, recursive = TRUE, showWarnings = FALSE)
@@ -545,7 +536,7 @@ save_plot_png_tif <- function(p, filename_base, w = 12, h = 8, dpi = 300) {
     dpi = dpi, limitsize = FALSE
   )
 
-  # TIF (GeoTIFF NÃO — é imagem tiff)
+  # TIF (imagem TIFF para revista)
   ggsave(
     filename = file.path(parts_dir, paste0(filename_base, ".tif")),
     plot = p,
@@ -566,11 +557,17 @@ save_plot_png_tif(roc_plot,         "05_ROC_models",          w = 10, h = 6)
 save_plot_png_tif(evaluation_panel, "06_metrics_panel",       w = 16, h = 6)
 
 # ---- Save each predictor panel separately ----
+# Agora: salva SOMENTE PNG para cada variável (economiza muito espaço)
 if (exists("var_panels") && length(var_panels) > 0) {
   for (nm in names(var_panels)) {
     safe_nm <- gsub("[^A-Za-z0-9_\\-]+", "_", nm)
-    save_plot_png_tif(var_panels[[nm]], paste0("07_predictor_", safe_nm), w = 12, h = 6)
+    ggsave(
+      filename = file.path(parts_dir, paste0("07_predictor_", safe_nm, ".png")),
+      plot = var_panels[[nm]],
+      width = 12, height = 6, units = "in",
+      dpi = 300, limitsize = FALSE
+    )
   }
 }
 
-cat("✅ Saved all panel parts to:", parts_dir, "\n")
+cat("✅ Saved panel parts to:", parts_dir, "\n")
