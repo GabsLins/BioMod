@@ -93,7 +93,6 @@ mintemperature  <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_
 vaporpressure   <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/vapr_annual_mean.tif", ref)
 wind            <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/wind_annual_mean.tif", ref)
 relevo          <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif", ref)
-NDVI            <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/NDVI/NDVI_america.tif", ref)
 LAI_MAX         <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/LAI/LAI_Max_2023.tif", ref)
 LAI_MEAN        <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/LAI/LAI_Mean_2023.tif", ref)
 LAI_MIN         <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/LAI/LAI_Min_2023.tif", ref)
@@ -124,7 +123,7 @@ relevo[relevo < 0] <- NA
 # stack com nomes “compatíveis” para correlação
 env <- raster::stack(
   precipBIO12, maxtemperature, meantemperature, mintemperature,
-  vaporpressure, wind, relevo, NDVI,
+  vaporpressure, wind, relevo,
   LAI_MAX, LAI_MEAN, LAI_MIN, LAI_SEASON, LAI_StdDev,
   BIO2, BIO3, BIO4, BIO5, BIO6, BIO7, BIO8, BIO9, BIO10, BIO11,
   BIO13, BIO14, BIO15, BIO16, BIO17, BIO18, BIO19
@@ -132,7 +131,7 @@ env <- raster::stack(
 
 names(env) <- c(
   "precipBIO12", "maxtemperature", "meantemperature", "mintemperature",
-  "vaporpressure", "wind", "relevo", "NDVI",
+  "vaporpressure", "wind", "relevo",
   "LAI_MAX", "LAI_MEAN", "LAI_MIN", "LAI_SEASON", "LAI_StdDev",
   "BIO2","BIO3","BIO4","BIO5","BIO6","BIO7","BIO8","BIO9","BIO10","BIO11",
   "BIO13","BIO14","BIO15","BIO16","BIO17","BIO18","BIO19"
@@ -207,7 +206,7 @@ pointsample <- read.csv(pointsample_file)
 # -----------------------------
 variaveis_desejadas <- c(
   "precipBIO12","maxtemperature","meantemperature","mintemperature",
-  "vaporpressure","wind","relevo","NDVI",
+  "vaporpressure","wind","relevo",
   "LAI_MAX","LAI_MEAN","LAI_MIN","LAI_SEASON","LAI_StdDev",
   "BIO2","BIO3","BIO4","BIO5","BIO6","BIO7","BIO8","BIO9","BIO10","BIO11",
   "BIO13","BIO14","BIO15","BIO16","BIO17","BIO18","BIO19"
@@ -235,7 +234,7 @@ cor_matrix <- cor(
 # Salvar matriz
 write.csv(
     cor_matrix,
-    file.path(base_path, "matriz_correlacao_12_26var.csv"),
+    file.path(base_path, "matriz_correlacao_14_30var.csv"),
     row.names = TRUE
 )
 
@@ -290,7 +289,7 @@ p_cor <- ggplot(df_cor, aes(Var1, Var2, fill = Corr)) +
 # Salvar figura
 # -----------------------------
 ggsave(
-    file.path(base_path, "Figura_matriz_correlacao_13_26var.png"),
+    file.path(base_path, "Figura_matriz_correlacao_14_30var.png"),
     plot = p_cor,
     width = 11,
     height = 9,
@@ -298,7 +297,7 @@ ggsave(
 )
 
 ggsave(
-    file.path(base_path, "Figura_matriz_correlacao_13_26var.pdf"),
+    file.path(base_path, "Figura_matriz_correlacao_14_30var.pdf"),
     plot = p_cor,
     width = 11,
     height = 9
@@ -310,7 +309,7 @@ ggsave(
 
 # JPG (alta qualidade – ideal para visualização)
 ggsave(
-    filename = file.path(output_dir, "Figura_matriz_correlacao_13_26var.jpg"),
+    filename = file.path(output_dir, "Figura_matriz_correlacao_14_30var.jpg"),
     plot = p_cor,
     width = 11,
     height = 9,
@@ -322,7 +321,7 @@ ggsave(
 
 # TIF (padrão para periódicos científicos)
 ggsave(
-    filename = file.path(output_dir, "Figura_matriz_correlacao_13_26var.tif"),
+    filename = file.path(output_dir, "Figura_matriz_correlacao_14_30var.tif"),
     plot = p_cor,
     width = 11,
     height = 9,
