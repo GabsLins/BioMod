@@ -1,6 +1,7 @@
 # ======================================================
 # Vampyrum spectrum – Modelos + Ensemble + Painel FINAL
-# (SCRIPT LIMPO / teste101) + THINNING 20 km
+# (SCRIPT LIMPO / teste102) + THINNING 20 km
+# >>> ADICIONADO: LAI_Seasonality + BIO12_Precip (WorldClim bio12)
 # ======================================================
 
 # -----------------------------
@@ -21,9 +22,9 @@ library(viridis)
 set.seed(42)
 
 # -----------------------------
-# 1) Diretório (teste101)
+# 1) Diretório (teste102)
 # -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste101_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste102_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Output:", output_dir, "\n")
 
@@ -40,36 +41,30 @@ coords_raw <- occ %>%
 
 cat("Ocorrências (brutas):", nrow(coords_raw), "\n")
 
-# ---- Thinning greedy por distância mínima (em metros) ----
 thin_points_min_dist <- function(df_xy, min_dist_m = 20000, crs_ll = 4326, crs_m = 3857) {
   stopifnot(all(c("x","y") %in% names(df_xy)))
   if (nrow(df_xy) <= 1) return(df_xy)
 
-  # Embaralha para não favorecer sempre os primeiros
   df_xy <- df_xy[sample.int(nrow(df_xy)), , drop = FALSE]
 
   pts_ll <- sf::st_as_sf(df_xy, coords = c("x","y"), crs = crs_ll, remove = FALSE)
-  pts_m  <- sf::st_transform(pts_ll, crs_m)  # unidade em metros (aprox.)
+  pts_m  <- sf::st_transform(pts_ll, crs_m)
 
   keep_idx <- integer(0)
-
   for (i in seq_len(nrow(pts_m))) {
     if (length(keep_idx) == 0) {
       keep_idx <- c(keep_idx, i)
       next
     }
-    # checa se o ponto i está a <= min_dist_m de algum já mantido
     near <- sf::st_is_within_distance(pts_m[i, ], pts_m[keep_idx, ], dist = min_dist_m)[[1]]
-    if (length(near) == 0) {
-      keep_idx <- c(keep_idx, i)
-    }
+    if (length(near) == 0) keep_idx <- c(keep_idx, i)
   }
 
   df_xy[keep_idx, , drop = FALSE]
 }
 
-coords <- thin_points_min_dist(coords_raw, min_dist_m = 20000)
-coords <- coords %>% dplyr::arrange(x, y)
+coords <- thin_points_min_dist(coords_raw, min_dist_m = 20000) %>%
+  dplyr::arrange(x, y)
 
 cat("Ocorrências (após thinning 20 km):", nrow(coords), "\n")
 
@@ -77,38 +72,63 @@ resp.var <- rep(1, nrow(coords))
 
 write.csv(
   data.frame(species="Vampyrum_spectrum", lon=coords$x, lat=coords$y),
-  file.path(output_dir, "dados_ocorrencia_teste101.csv"),
+  file.path(output_dir, "dados_ocorrencia_teste102.csv"),
   row.names = FALSE
 )
 
 # ======================================================
-# 3) Camadas ambientais (PADRONIZAÇÃO)
+# 3) Camadas ambientais (PADRONIZAÇÃO) + NOVAS CAMADAS
 # ======================================================
 ext_america <- raster::extent(-170, -26, -56, 72)
 
 prep_layer <- function(path, ref = NULL) {
+  if (!file.exists(path)) stop("Arquivo não encontrado: ", path)
   r <- raster::raster(path)
   r <- raster::crop(r, ext_america)
   if (!is.null(ref)) r <- raster::resample(r, ref, method = "bilinear")
   r
 }
 
+# ---- Base (mantida do seu script original) ----
 BIO7  <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
 vapor <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/meanvaporpressure.tif", BIO7)
 wind  <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif", BIO7)
 relevo<- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif", BIO7)
 
+# ---- NOVAS CAMADAS (endereços do heatmap/pointsample) ----
+BIO12_Precip <- prep_layer(
+  "C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/bio12.tif",
+  BIO7
+)
+
+LAI_Seasonality <- prep_layer(
+  "C:/Users/Administrador/Desktop/GAB/Mod/LAI/LAI_Seasonality_2023.tif",
+  BIO7
+)
+
+# limpeza relevo
 relevo[relevo < 0] <- NA
 
-env <- raster::stack(vapor, wind, relevo, BIO7)
-names(env) <- c("Vapor_Pressure","Wind","Elevation","Temperature_Variation")
+# ---- Stack final (agora com 6 layers) ----
+env <- raster::stack(vapor, wind, relevo, BIO7, BIO12_Precip, LAI_Seasonality)
+names(env) <- c(
+  "Vapor_Pressure",
+  "Wind",
+  "Elevation",
+  "Temperature_Variation",  # (BIO7)
+  "BIO12_Precip",
+  "LAI_Seasonality"
+)
+
 cat("Layers:", paste(names(env), collapse = ", "), "\n")
 
-# checkpoints das layers
-raster::writeRaster(vapor, file.path(output_dir, "Vapor_Pressure.tif"), overwrite = TRUE)
-raster::writeRaster(wind,  file.path(output_dir, "Wind.tif"), overwrite = TRUE)
-raster::writeRaster(relevo,file.path(output_dir, "Elevation.tif"), overwrite = TRUE)
-raster::writeRaster(BIO7,  file.path(output_dir, "BIO7.tif"), overwrite = TRUE)
+# checkpoints das layers (atualizados p/ teste102)
+raster::writeRaster(vapor,          file.path(output_dir, "Vapor_Pressure.tif"), overwrite = TRUE)
+raster::writeRaster(wind,           file.path(output_dir, "Wind.tif"), overwrite = TRUE)
+raster::writeRaster(relevo,         file.path(output_dir, "Elevation.tif"), overwrite = TRUE)
+raster::writeRaster(BIO7,           file.path(output_dir, "BIO7.tif"), overwrite = TRUE)
+raster::writeRaster(BIO12_Precip,   file.path(output_dir, "BIO12_Precip.tif"), overwrite = TRUE)
+raster::writeRaster(LAI_Seasonality,file.path(output_dir, "LAI_Seasonality.tif"), overwrite = TRUE)
 
 # ======================================================
 # 4) BIOMOD_FormatingData (com PA)
@@ -126,7 +146,7 @@ biomod_data <- BIOMOD_FormatingData(
   resp.name = "Vampyrum.spectrum"
 )
 
-saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste101.rds"))
+saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste102.rds"))
 
 # ======================================================
 # 5) Modelagem
@@ -151,7 +171,7 @@ models <- BIOMOD_Modeling(
   var.import = 3
 )
 
-saveRDS(models, file.path(output_dir, "models_teste101.rds"))
+saveRDS(models, file.path(output_dir, "models_teste102.rds"))
 
 # ======================================================
 # 6) Ensemble
@@ -166,37 +186,34 @@ ensemble <- BIOMOD_EnsembleModeling(
   var.import = 3
 )
 
-saveRDS(ensemble, file.path(output_dir, "ensemble_teste101.rds"))
+saveRDS(ensemble, file.path(output_dir, "ensemble_teste102.rds"))
 
 # ======================================================
 # 7) Ensemble Forecasting (RASTER ROBUSTO)
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble,
-  proj.name = "current_teste101",
+  proj.name = "current_teste102",
   new.env = env
 )
-saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste101.rds"))
+saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste102.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
-# 1) tentativa direta
 ensemble_raster_single <- tryCatch(terra::rast(pred_obj)[[1]], error = function(e) NULL)
 
-# 2) fallback via Raster*
 if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)) {
   rs <- tryCatch(raster::stack(pred_obj), error = function(e) NULL)
   if (!is.null(rs)) ensemble_raster_single <- terra::rast(rs)[[1]]
 }
 
-# 3) checagem final
 if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)) {
   stop("Não consegui obter raster do ensemble com valores. Veja class/str de get_predictions(ensemble_proj).")
 }
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_teste101.tif"),
+  file.path(output_dir, "ensemble_suitability_teste102.tif"),
   overwrite = TRUE
 )
 
@@ -209,7 +226,6 @@ df_models <- ev_models %>%
   dplyr::transmute(Modelo = algo, Metrica = metric.eval, Valor = validation) %>%
   dplyr::filter(is.finite(Valor), !is.na(Valor))
 
-# ensemble: no seu caso, validation vem NA, então usar calibration
 ev_ens <- get_evaluations(ensemble)
 df_ens <- ev_ens %>%
   dplyr::filter(algo == "EMmean", metric.eval %in% c("TSS","ROC")) %>%
@@ -229,7 +245,7 @@ importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   summarise(importance = mean(var.imp, na.rm = TRUE), .groups="drop") %>%
   rename(var = expl.var)
 
-write.csv(importance, file.path(output_dir, "importance_teste101.csv"), row.names = FALSE)
+write.csv(importance, file.path(output_dir, "importance_teste102.csv"), row.names = FALSE)
 
 importance_plot <- ggplot(
   importance %>% arrange(desc(importance)),
@@ -314,7 +330,6 @@ make_var_panel <- function(r, varname, coords_obj, pa_obj, imp_df) {
   imp_val <- imp_df %>% dplyr::filter(var == varname) %>% dplyr::pull(importance)
   imp_txt <- ifelse(length(imp_val)>0, sprintf(" | Imp: %.3f", imp_val[1]), " | Imp: NA")
 
-  # mapa: converter raster -> df e plotar
   rr_crop <- tryCatch(terra::crop(rr, terra::ext(-120, -30, -60, 30)), error=function(e) NULL)
   rr_use <- rr_crop
   if (is.null(rr_use) || !terra::hasValues(rr_use)) rr_use <- rr
@@ -367,7 +382,6 @@ vars_panel <- wrap_plots(var_panels, ncol=2) +
 countries <- rnaturalearth::ne_countries(scale="medium", returnclass="sf")
 pres_coords <- data.frame(lon = coords$x, lat = coords$y)
 
-# Mapa ensemble (sem geom_spatraster)
 target_ext <- terra::ext(-120, -30, -60, 30)
 ens_crop <- tryCatch(terra::crop(ensemble_raster_single, target_ext), error=function(e) NULL)
 use_r <- ens_crop
@@ -429,7 +443,7 @@ final_panel <- (suitability_map | importance_plot) /
     theme = theme(plot.title = element_text(size=14, face="bold"))
   )
 
-out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste101.png")
+out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste102.png")
 cat("Salvando:", out_panel, "\n")
 
 ok <- tryCatch({
@@ -457,7 +471,6 @@ dir.create(parts_dir, recursive = TRUE, showWarnings = FALSE)
 
 save_plot_png_tif <- function(p, filename_base, w = 12, h = 8, dpi = 300) {
 
-  # PNG
   ggsave(
     filename = file.path(parts_dir, paste0(filename_base, ".png")),
     plot = p,
@@ -465,7 +478,6 @@ save_plot_png_tif <- function(p, filename_base, w = 12, h = 8, dpi = 300) {
     dpi = dpi, limitsize = FALSE
   )
 
-  # TIF (GeoTIFF NÃO — é imagem tiff)
   ggsave(
     filename = file.path(parts_dir, paste0(filename_base, ".tif")),
     plot = p,
@@ -476,7 +488,6 @@ save_plot_png_tif <- function(p, filename_base, w = 12, h = 8, dpi = 300) {
   )
 }
 
-# ---- Save main panel parts ----
 save_plot_png_tif(final_panel,      "00_final_panel",         w = 22, h = 24)
 save_plot_png_tif(suitability_map,  "01_ensemble_map",        w = 12, h = 8)
 save_plot_png_tif(importance_plot,  "02_variable_importance", w = 10, h = 6)
@@ -485,7 +496,6 @@ save_plot_png_tif(tss_plot,         "04_TSS_models",          w = 10, h = 6)
 save_plot_png_tif(roc_plot,         "05_ROC_models",          w = 10, h = 6)
 save_plot_png_tif(evaluation_panel, "06_metrics_panel",       w = 16, h = 6)
 
-# ---- Save each predictor panel separately ----
 if (exists("var_panels") && length(var_panels) > 0) {
   for (nm in names(var_panels)) {
     safe_nm <- gsub("[^A-Za-z0-9_\\-]+", "_", nm)
