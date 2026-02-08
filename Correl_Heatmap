@@ -1,15 +1,16 @@
-### CASO NAO TENHA O POINTSAMPLE AINDA:
-
 # ======================================================
-# POINTSAMPLE (FULL STACK) – Vampyrum spectrum
-# Gera tabela para correlação Pearson + heatmap
-# Formato: Specie | latitude | longitude | variáveis...
+# POINTSAMPLE20 + CORRELAÇÃO (Pearson) + HEATMAP
+# Vampyrum spectrum
+# - SEM NDVI
+# - COM 5 camadas LAI (MAX/MEAN/MIN/SEASON/StdDev)
+# - Salva: pointsample20.csv + matriz correlação + figuras (PNG/PDF/JPG/TIF)
 # ======================================================
 
 library(raster)
 library(terra)
 library(dplyr)
 library(sf)
+library(ggplot2)
 
 set.seed(42)
 
@@ -19,20 +20,25 @@ raster::rasterOptions(tmpdir = "C:/R_TMP")
 terra::terraOptions(tempdir = "C:/R_TMP")
 
 # -----------------------------
-# Paths (ajuste se necessário)
+# Diretórios
 # -----------------------------
 output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_Correlacao"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+cat("📁 Diretório de saída:", output_dir, "\n")
 
+# Saídas
+pointsample_out <- file.path(output_dir, "pointsample20.csv")
+matriz_out      <- file.path(output_dir, "matriz_correlacao_pointsample20.csv")
+
+fig_png <- file.path(output_dir, "Heatmap_Pearson_pointsample20.png")
+fig_pdf <- file.path(output_dir, "Heatmap_Pearson_pointsample20.pdf")
+fig_jpg <- file.path(output_dir, "Heatmap_Pearson_pointsample20.jpg")
+fig_tif <- file.path(output_dir, "Heatmap_Pearson_pointsample20.tif")
+
+# -----------------------------
+# Ocorrências
+# -----------------------------
 occ_csv <- "C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All5.csv"
-
-# Arquivo de saída (novo pointsample full stack)
-pointsample_out <- file.path(output_dir, "pointsample_fullstack.csv")
-
-# ======================================================
-# 1) Ocorrências (mesma ideia do seu pipeline)
-#    (se você quiser SEM thinning, é só usar coords_raw direto)
-# ======================================================
 occ <- read.csv(occ_csv)
 
 coords_raw <- occ %>%
@@ -42,6 +48,7 @@ coords_raw <- occ %>%
 
 cat("Ocorrências (brutas):", nrow(coords_raw), "\n")
 
+# ---- Thinning greedy por distância mínima (em metros) ----
 thin_points_min_dist <- function(df_xy, min_dist_m = 20000, crs_ll = 4326, crs_m = 3857) {
   stopifnot(all(c("x","y") %in% names(df_xy)))
   if (nrow(df_xy) <= 1) return(df_xy)
@@ -64,13 +71,14 @@ thin_points_min_dist <- function(df_xy, min_dist_m = 20000, crs_ll = 4326, crs_m
   df_xy[keep_idx, , drop = FALSE]
 }
 
+# pointsample20 -> thinning 20 km
 coords <- thin_points_min_dist(coords_raw, min_dist_m = 20000) %>%
   dplyr::arrange(x, y)
 
-cat("Ocorrências (thinning 20 km):", nrow(coords), "\n")
+cat("Ocorrências (após thinning 20 km):", nrow(coords), "\n")
 
 # ======================================================
-# 2) Camadas ambientais (FULL STACK) — igual ao seu código
+# 1) Camadas ambientais (SEM NDVI | COM 5 LAI)
 # ======================================================
 ext_america <- raster::extent(-170, -26, -56, 72)
 
@@ -82,10 +90,11 @@ prep_layer <- function(path, ref = NULL, ext = ext_america, method = "bilinear")
   return(r)
 }
 
+# Referência (grid)
 ref_path <- "C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/bio07.tif"
 ref <- prep_layer(ref_path, ref = NULL)
 
-# --- variáveis (nomes exatamente como você pediu) ---
+# Variáveis (mesmos caminhos do seu último script)
 precipBIO12     <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/bio12.tif", ref)
 maxtemperature  <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/tmax_annual_mean.tif", ref)
 meantemperature <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/tmean_annual_mean.tif", ref)
@@ -93,6 +102,7 @@ mintemperature  <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_
 vaporpressure   <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/vapr_annual_mean.tif", ref)
 wind            <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/wind_annual_mean.tif", ref)
 relevo          <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif", ref)
+
 LAI_MAX         <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/LAI/LAI_Max_2023.tif", ref)
 LAI_MEAN        <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/LAI/LAI_Mean_2023.tif", ref)
 LAI_MIN         <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/LAI/LAI_Min_2023.tif", ref)
@@ -117,10 +127,10 @@ BIO17 <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FIN
 BIO18 <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio18.tif", ref)
 BIO19 <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/WorldClim_30s/WC_FINAL/bio19.tif", ref)
 
-# limpeza relevo
+# Limpeza relevo
 relevo[relevo < 0] <- NA
 
-# stack com nomes “compatíveis” para correlação
+# Stack SEM NDVI e COM 5 LAI
 env <- raster::stack(
   precipBIO12, maxtemperature, meantemperature, mintemperature,
   vaporpressure, wind, relevo,
@@ -130,9 +140,9 @@ env <- raster::stack(
 )
 
 names(env) <- c(
-  "precipBIO12", "maxtemperature", "meantemperature", "mintemperature",
-  "vaporpressure", "wind", "relevo",
-  "LAI_MAX", "LAI_MEAN", "LAI_MIN", "LAI_SEASON", "LAI_StdDev",
+  "precipBIO12","maxtemperature","meantemperature","mintemperature",
+  "vaporpressure","wind","relevo",
+  "LAI_MAX","LAI_MEAN","LAI_MIN","LAI_SEASON","LAI_StdDev",
   "BIO2","BIO3","BIO4","BIO5","BIO6","BIO7","BIO8","BIO9","BIO10","BIO11",
   "BIO13","BIO14","BIO15","BIO16","BIO17","BIO18","BIO19"
 )
@@ -140,70 +150,32 @@ names(env) <- c(
 cat("Layers (env):", nlayers(env), "\n")
 
 # ======================================================
-# 3) Extrair valores (pointsample)
+# 2) POINTSAMPLE20 (extrair valores)
 # ======================================================
-# Usando terra::extract (mais robusto/rápido), convertendo stack raster->terra
 env_terra <- terra::rast(env)
-
-# coords em SpatVector (EPSG:4326)
 pts <- terra::vect(coords, geom = c("x","y"), crs = "EPSG:4326")
 
-vals <- terra::extract(env_terra, pts)  # retorna col "ID" + variáveis
+vals <- terra::extract(env_terra, pts)
 vals$ID <- NULL
 
-pointsample <- data.frame(
+pointsample20 <- data.frame(
   Specie    = "Vampyrum_spectrum",
   latitude  = coords$y,
   longitude = coords$x,
   vals
 )
 
-# (opcional) remover linhas com NA em qualquer variável
-# pointsample <- pointsample %>% tidyr::drop_na()
+write.csv(pointsample20, pointsample_out, row.names = FALSE)
+cat("✅ pointsample20 salvo em:", pointsample_out, "\n")
+cat("Dimensão:", nrow(pointsample20), "x", ncol(pointsample20), "\n")
 
-write.csv(pointsample, pointsample_out, row.names = FALSE)
-cat("✅ pointsample salvo em:", pointsample_out, "\n")
-cat("Dimensão:", nrow(pointsample), "x", ncol(pointsample), "\n")
-
-######################################################################
-######################################################################
-######################################################################
-## AGORA O HEAT MAP
-######################################################################
-######################################################################
-######################################################################
-#======================================================
-# CORRELAÇÃO AMBIENTAL + HEATMAP (Pearson)
-# Vampyrum spectrum
+# ======================================================
+# 3) CORRELAÇÃO (Pearson) + HEATMAP
 # ======================================================
 
-library(ggplot2)
+# Ler (garante que é o arquivo certo)
+pointsample <- read.csv(pointsample_out)
 
-# -----------------------------
-# Diretório de saída
-# -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_Correlacao"
-
-if (!dir.exists(output_dir)) {
-    dir.create(output_dir, recursive = TRUE)
-}
-
-cat("📁 Diretório de saída:", output_dir, "\n")
-# -----------------------------
-# Caminhos
-# -----------------------------
-base_path <- "C:/Users/Administrador/Desktop/GAB/Mod"
-
-pointsample_file <- file.path(base_path, "pointsample12_26var.csv")
-
-# -----------------------------
-# Ler tabela amostrada
-# -----------------------------
-pointsample <- read.csv(pointsample_file)
-
-# -----------------------------
-# Variáveis de interesse
-# -----------------------------
 variaveis_desejadas <- c(
   "precipBIO12","maxtemperature","meantemperature","mintemperature",
   "vaporpressure","wind","relevo",
@@ -212,35 +184,23 @@ variaveis_desejadas <- c(
   "BIO13","BIO14","BIO15","BIO16","BIO17","BIO18","BIO19"
 )
 
-variaveis_presentes <- variaveis_desejadas[
-    variaveis_desejadas %in% names(pointsample)
-]
+variaveis_presentes <- variaveis_desejadas[variaveis_desejadas %in% names(pointsample)]
+faltando <- setdiff(variaveis_desejadas, names(pointsample))
 
-if (length(variaveis_presentes) < 2) {
-    stop("Número insuficiente de variáveis para correlação.")
+cat("Variáveis presentes:", length(variaveis_presentes), "\n")
+if (length(faltando) > 0) {
+  cat("⚠️ Variáveis faltando no CSV:", paste(faltando, collapse = ", "), "\n")
 }
 
-# -----------------------------
-# Subset e correlação
-# -----------------------------
-dados_cor <- pointsample[, variaveis_presentes]
+if (length(variaveis_presentes) < 2) stop("Número insuficiente de variáveis para correlação.")
 
-cor_matrix <- cor(
-    dados_cor,
-    method = "pearson",
-    use = "complete.obs"
-)
+dados_cor <- pointsample[, variaveis_presentes, drop = FALSE]
 
-# Salvar matriz
-write.csv(
-    cor_matrix,
-    file.path(base_path, "matriz_correlacao_14_30var.csv"),
-    row.names = TRUE
-)
+cor_matrix <- cor(dados_cor, method = "pearson", use = "complete.obs")
 
-# -----------------------------
-# Converter para formato longo
-# -----------------------------
+write.csv(cor_matrix, matriz_out, row.names = TRUE)
+cat("✅ Matriz de correlação salva em:", matriz_out, "\n")
+
 df_cor <- as.data.frame(as.table(cor_matrix))
 colnames(df_cor) <- c("Var1", "Var2", "Corr")
 
@@ -248,90 +208,42 @@ vars <- colnames(cor_matrix)
 df_cor$Var1 <- factor(df_cor$Var1, levels = vars)
 df_cor$Var2 <- factor(df_cor$Var2, levels = vars)
 
-# -----------------------------
-# Heatmap
-# -----------------------------
 p_cor <- ggplot(df_cor, aes(Var1, Var2, fill = Corr)) +
-    geom_tile(color = "white", linewidth = 0.3) +
-    
-    # VALORES DE CORRELAÇÃO DENTRO DOS QUADRADOS
-    geom_text(
-        aes(label = sprintf("%.2f", Corr)),
-        color = "black",
-        size = 3
-    ) +
-    
-    coord_fixed() +
-    scale_fill_gradient2(
-        low = "#2166AC",
-        mid = "white",
-        high = "#B2182B",
-        midpoint = 0,
-        limits = c(-1, 1),
-        name = "Pearson r"
-    ) +
-    theme_minimal(base_size = 11) +
-    theme(
-        axis.title = element_blank(),
-        panel.grid = element_blank(),
-        axis.text.x = element_text(
-            angle = 45,
-            hjust = 1,
-            vjust = 1,
-            color = "black"
-        ),
-        axis.text.y = element_text(color = "black"),
-        legend.title = element_text(color = "black")
-    ) +
-    labs(title = "Matriz de Correlação (Pearson)")
+  geom_tile(color = "white", linewidth = 0.3) +
+  geom_text(aes(label = sprintf("%.2f", Corr)), color = "black", size = 3) +
+  coord_fixed() +
+  scale_fill_gradient2(
+    low = "#2166AC", mid = "white", high = "#B2182B",
+    midpoint = 0, limits = c(-1, 1),
+    name = "Pearson r"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    legend.title = element_text(color = "black")
+  ) +
+  labs(title = "Matriz de Correlação (Pearson) – pointsample20")
 
-# -----------------------------
-# Salvar figura
-# -----------------------------
+# Salvar figuras
+ggsave(fig_png, plot = p_cor, width = 11, height = 9, dpi = 300)
+ggsave(fig_pdf, plot = p_cor, width = 11, height = 9)
+
 ggsave(
-    file.path(base_path, "Figura_matriz_correlacao_14_30var.png"),
-    plot = p_cor,
-    width = 11,
-    height = 9,
-    dpi = 300
+  filename = fig_jpg,
+  plot = p_cor,
+  width = 11, height = 9, units = "in",
+  dpi = 300, device = "jpeg", quality = 95
 )
 
 ggsave(
-    file.path(base_path, "Figura_matriz_correlacao_14_30var.pdf"),
-    plot = p_cor,
-    width = 11,
-    height = 9
+  filename = fig_tif,
+  plot = p_cor,
+  width = 11, height = 9, units = "in",
+  dpi = 300, device = "tiff", compression = "lzw"
 )
 
-# -----------------------------
-# Salvar figura (JPG + TIF)
-# -----------------------------
-
-# JPG (alta qualidade – ideal para visualização)
-ggsave(
-    filename = file.path(output_dir, "Figura_matriz_correlacao_14_30var.jpg"),
-    plot = p_cor,
-    width = 11,
-    height = 9,
-    units = "in",
-    dpi = 300,
-    device = "jpeg",
-    quality = 95
-)
-
-# TIF (padrão para periódicos científicos)
-ggsave(
-    filename = file.path(output_dir, "Figura_matriz_correlacao_14_30var.tif"),
-    plot = p_cor,
-    width = 11,
-    height = 9,
-    units = "in",
-    dpi = 300,
-    device = "tiff",
-    compression = "lzw"
-)
-
-cat("✅ Correlação e heatmap salvos em JPG e TIF com sucesso.\n")
-
-
-cat("✅ Correlação e heatmap gerados com sucesso.\n")
+cat("✅ Heatmap salvo em PNG/PDF/JPG/TIF com sucesso.\n")
+cat("✅ Finalizado.\n")
