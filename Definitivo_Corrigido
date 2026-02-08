@@ -1,7 +1,7 @@
 # ======================================================
 # Vampyrum spectrum – Modelos + Ensemble + Painel FINAL
-# (SCRIPT LIMPO / teste102) + THINNING 20 km
-# >>> ADICIONADO: LAI_Seasonality + BIO12_Precip (WorldClim bio12)
+# (SCRIPT LIMPO / teste103) + THINNING 20 km
+# Mantém SOMENTE: BIO7, Elevation, BIO12, VaporPressure
 # ======================================================
 
 # -----------------------------
@@ -22,9 +22,9 @@ library(viridis)
 set.seed(42)
 
 # -----------------------------
-# 1) Diretório (teste102)
+# 1) Diretório (teste103)
 # -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste102_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste103_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Output:", output_dir, "\n")
 
@@ -72,63 +72,57 @@ resp.var <- rep(1, nrow(coords))
 
 write.csv(
   data.frame(species="Vampyrum_spectrum", lon=coords$x, lat=coords$y),
-  file.path(output_dir, "dados_ocorrencia_teste102.csv"),
+  file.path(output_dir, "dados_ocorrencia_teste103.csv"),
   row.names = FALSE
 )
 
 # ======================================================
-# 3) Camadas ambientais (PADRONIZAÇÃO) + NOVAS CAMADAS
+# 3) Camadas ambientais (PADRONIZAÇÃO) – 4 camadas
+# BIO7, Elevation, BIO12, VaporPressure
 # ======================================================
 ext_america <- raster::extent(-170, -26, -56, 72)
 
-prep_layer <- function(path, ref = NULL) {
+prep_layer <- function(path, ref = NULL, method = "bilinear") {
   if (!file.exists(path)) stop("Arquivo não encontrado: ", path)
   r <- raster::raster(path)
   r <- raster::crop(r, ext_america)
-  if (!is.null(ref)) r <- raster::resample(r, ref, method = "bilinear")
+  if (!is.null(ref)) r <- raster::resample(r, ref, method = method)
   r
 }
 
-# ---- Base (mantida do seu script original) ----
-BIO7  <- prep_layer("C:/Users/Administrador/Desktop/Gab/Mod/wc2.1_2.5m_bio/wc2.1_2.5m_bio_7.tif")
-vapor <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/meanvaporpressure.tif", BIO7)
-wind  <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/wind_media_anual.tif", BIO7)
-relevo<- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif", BIO7)
+# --- Referência (grid) = BIO7 (WC_FINAL) ---
+BIO7 <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/bio07.tif")
 
-# ---- NOVAS CAMADAS (endereços do heatmap/pointsample) ----
-BIO12_Precip <- prep_layer(
+# --- Variáveis no mesmo grid de BIO7 ---
+vaporpressure <- prep_layer(
+  "C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/vapr_annual_mean.tif",
+  ref = BIO7
+)
+
+BIO12 <- prep_layer(
   "C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/bio12.tif",
-  BIO7
+  ref = BIO7
 )
 
-LAI_Seasonality <- prep_layer(
-  "C:/Users/Administrador/Desktop/GAB/Mod/LAI/LAI_Seasonality_2023.tif",
-  BIO7
+elevation <- prep_layer(
+  "C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif",
+  ref = BIO7
 )
 
-# limpeza relevo
-relevo[relevo < 0] <- NA
+# limpeza elevação negativa
+elevation[elevation < 0] <- NA
 
-# ---- Stack final (agora com 6 layers) ----
-env <- raster::stack(vapor, wind, relevo, BIO7, BIO12_Precip, LAI_Seasonality)
-names(env) <- c(
-  "Vapor_Pressure",
-  "Wind",
-  "Elevation",
-  "Temperature_Variation",  # (BIO7)
-  "BIO12_Precip",
-  "LAI_Seasonality"
-)
+# stack final com 4 layers
+env <- raster::stack(BIO7, elevation, BIO12, vaporpressure)
+names(env) <- c("BIO7", "Elevation", "BIO12", "VaporPressure")
 
 cat("Layers:", paste(names(env), collapse = ", "), "\n")
 
-# checkpoints das layers (atualizados p/ teste102)
-raster::writeRaster(vapor,          file.path(output_dir, "Vapor_Pressure.tif"), overwrite = TRUE)
-raster::writeRaster(wind,           file.path(output_dir, "Wind.tif"), overwrite = TRUE)
-raster::writeRaster(relevo,         file.path(output_dir, "Elevation.tif"), overwrite = TRUE)
-raster::writeRaster(BIO7,           file.path(output_dir, "BIO7.tif"), overwrite = TRUE)
-raster::writeRaster(BIO12_Precip,   file.path(output_dir, "BIO12_Precip.tif"), overwrite = TRUE)
-raster::writeRaster(LAI_Seasonality,file.path(output_dir, "LAI_Seasonality.tif"), overwrite = TRUE)
+# checkpoints das layers (opcional, mas ajuda debug)
+raster::writeRaster(BIO7,         file.path(output_dir, "BIO7.tif"), overwrite = TRUE)
+raster::writeRaster(elevation,    file.path(output_dir, "Elevation.tif"), overwrite = TRUE)
+raster::writeRaster(BIO12,        file.path(output_dir, "BIO12.tif"), overwrite = TRUE)
+raster::writeRaster(vaporpressure,file.path(output_dir, "VaporPressure.tif"), overwrite = TRUE)
 
 # ======================================================
 # 4) BIOMOD_FormatingData (com PA)
@@ -146,7 +140,7 @@ biomod_data <- BIOMOD_FormatingData(
   resp.name = "Vampyrum.spectrum"
 )
 
-saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste102.rds"))
+saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste103.rds"))
 
 # ======================================================
 # 5) Modelagem
@@ -171,7 +165,7 @@ models <- BIOMOD_Modeling(
   var.import = 3
 )
 
-saveRDS(models, file.path(output_dir, "models_teste102.rds"))
+saveRDS(models, file.path(output_dir, "models_teste103.rds"))
 
 # ======================================================
 # 6) Ensemble
@@ -186,17 +180,17 @@ ensemble <- BIOMOD_EnsembleModeling(
   var.import = 3
 )
 
-saveRDS(ensemble, file.path(output_dir, "ensemble_teste102.rds"))
+saveRDS(ensemble, file.path(output_dir, "ensemble_teste103.rds"))
 
 # ======================================================
 # 7) Ensemble Forecasting (RASTER ROBUSTO)
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble,
-  proj.name = "current_teste102",
+  proj.name = "current_teste103",
   new.env = env
 )
-saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste102.rds"))
+saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste103.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
@@ -213,7 +207,7 @@ if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_teste102.tif"),
+  file.path(output_dir, "ensemble_suitability_teste103.tif"),
   overwrite = TRUE
 )
 
@@ -245,7 +239,7 @@ importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   summarise(importance = mean(var.imp, na.rm = TRUE), .groups="drop") %>%
   rename(var = expl.var)
 
-write.csv(importance, file.path(output_dir, "importance_teste102.csv"), row.names = FALSE)
+write.csv(importance, file.path(output_dir, "importance_teste103.csv"), row.names = FALSE)
 
 importance_plot <- ggplot(
   importance %>% arrange(desc(importance)),
@@ -443,7 +437,7 @@ final_panel <- (suitability_map | importance_plot) /
     theme = theme(plot.title = element_text(size=14, face="bold"))
   )
 
-out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste102.png")
+out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste103.png")
 cat("Salvando:", out_panel, "\n")
 
 ok <- tryCatch({
