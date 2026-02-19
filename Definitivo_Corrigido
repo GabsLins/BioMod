@@ -1,37 +1,66 @@
 # ======================================================
 # Vampyrum spectrum – Modelos + Ensemble + Painel FINAL
-# (SCRIPT LIMPO / teste106) + THINNING 20 km
-# Mantém SOMENTE: BIO7, Elevation, BIO12, VaporPressure
+# (SCRIPT LIMPO / teste107) + THINNING 20 km
+# CAMADAS: BIO7 + Elevation + BIO12 + VaporPressure
+# FOCO: reduzir TEMP + manter PA.strategy = "disk"
 # ======================================================
 
 # -----------------------------
 # 0) Pacotes
 # -----------------------------
-library(biomod2)
-library(sp)
-library(raster)
-library(terra)
-library(dplyr)
-library(ggplot2)
-library(sf)
-library(patchwork)
-library(rnaturalearth)
-library(rnaturalearthdata)
-library(viridis)
+suppressPackageStartupMessages({
+  library(biomod2)
+  library(sp)
+  library(raster)
+  library(terra)
+  library(dplyr)
+  library(ggplot2)
+  library(sf)
+  library(patchwork)
+  library(rnaturalearth)
+  library(rnaturalearthdata)
+  library(viridis)
+})
 
 set.seed(42)
 
-# -----------------------------
-# 1) Diretório (teste106)
-# -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste106_ensemble"
+# ======================================================
+# 0.1) CONTROLE DE TEMP / DISCO (MUITO IMPORTANTE)
+# ======================================================
+# -> coloque em um disco com espaço (ideal: D: ou E:)
+tmp_dir <- "D:/R_TMP"   # <<< TROQUE se não existir D:
+dir.create(tmp_dir, showWarnings = FALSE, recursive = TRUE)
+
+# raster/terra usam essas pastas para processar em disco
+raster::rasterOptions(
+  tmpdir = tmp_dir,
+  chunksize = 1e7,   # aumenta chunk -> menos arquivos temporários (se tiver RAM)
+  maxmemory = 2e9    # ajuste se sua RAM permitir (ex.: 4e9, 8e9)
+)
+terra::terraOptions(tempdir = tmp_dir, memfrac = 0.8, progress = 1)
+
+# força TEMP do R e de libs internas para o mesmo lugar
+Sys.setenv(TMPDIR = tmp_dir, TEMP = tmp_dir, TMP = tmp_dir)
+
+# reduz risco de crash por threads nativas
+options(mc.cores = 1)
+Sys.setenv(OMP_NUM_THREADS = 1, MKL_NUM_THREADS = 1)
+
+# limpeza de temporários antigos (não apaga seus outputs, só temp)
+unlink(list.files(tmp_dir, full.names = TRUE, recursive = TRUE), force = TRUE)
+
+# ======================================================
+# 1) Diretório (teste107)
+# ======================================================
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste107_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Output:", output_dir, "\n")
+cat("TMP:", tmp_dir, "\n")
 
 # ======================================================
 # 2) Ocorrências + THINNING (20 km)
 # ======================================================
-occ_csv <- "C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All6.csv"
+occ_csv <- "C:/Users/Administrador/Desktop/GAB/Mod/Tabela Ocorrência V. spectrum_DADOS BRUTOS EM PREPARAÇÃO - Modelagem_Dec_All5.csv"
 occ <- read.csv(occ_csv)
 
 coords_raw <- occ %>%
@@ -59,7 +88,6 @@ thin_points_min_dist <- function(df_xy, min_dist_m = 20000, crs_ll = 4326, crs_m
     near <- sf::st_is_within_distance(pts_m[i, ], pts_m[keep_idx, ], dist = min_dist_m)[[1]]
     if (length(near) == 0) keep_idx <- c(keep_idx, i)
   }
-
   df_xy[keep_idx, , drop = FALSE]
 }
 
@@ -67,90 +95,93 @@ coords <- thin_points_min_dist(coords_raw, min_dist_m = 20000) %>%
   dplyr::arrange(x, y)
 
 cat("Ocorrências (após thinning 20 km):", nrow(coords), "\n")
-
 resp.var <- rep(1, nrow(coords))
 
 write.csv(
-  data.frame(species="Vampyrum_spectrum", lon=coords$x, lat=coords$y),
-  file.path(output_dir, "dados_ocorrencia_teste106.csv"),
+  data.frame(species = "Vampyrum_spectrum", lon = coords$x, lat = coords$y),
+  file.path(output_dir, "dados_ocorrencia_teste107.csv"),
   row.names = FALSE
 )
 
 # ======================================================
-# 3) Camadas ambientais (PADRONIZAÇÃO) – 4 camadas
-# BIO7, Elevation, BIO12, VaporPressure
+# 3) Camadas ambientais (PADRONIZAÇÃO) – 4 layers
 # ======================================================
 ext_america <- raster::extent(-170, -26, -56, 72)
 
-prep_layer <- function(path, ref = NULL, method = "bilinear") {
+prep_layer <- function(path, ref = NULL, ext = ext_america, method = "bilinear") {
   if (!file.exists(path)) stop("Arquivo não encontrado: ", path)
   r <- raster::raster(path)
-  r <- raster::crop(r, ext_america)
+  r <- raster::crop(r, ext)
   if (!is.null(ref)) r <- raster::resample(r, ref, method = method)
-  r
+  return(r)
 }
 
-# --- Referência (grid) = BIO7 (WC_FINAL) ---
-BIO7 <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/bio07.tif")
+# referência do grid (BIO7 final)
+ref_path <- "C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/bio07.tif"
+ref <- prep_layer(ref_path, ref = NULL)
 
-# --- Variáveis no mesmo grid de BIO7 ---
-vaporpressure <- prep_layer(
-  "C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/vapr_annual_mean.tif",
-  ref = BIO7
-)
+BIO7 <- ref
 
-BIO12 <- prep_layer(
-  "C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/bio12.tif",
-  ref = BIO7
-)
+# demais layers no MESMO grid do ref
+elevation <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif", ref)
+BIO12     <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/bio12.tif", ref)
+vapor     <- prep_layer("C:/Users/Administrador/Desktop/GAB/Mod/WorldClim_30s/WC_FINAL/vapr_annual_mean.tif", ref)
 
-elevation <- prep_layer(
-  "C:/Users/Administrador/Desktop/GAB/Mod/output_GMRT.tif",
-  ref = BIO7
-)
-
-# limpeza elevação negativa
+# limpeza
 elevation[elevation < 0] <- NA
 
-# stack final com 4 layers
-env <- raster::stack(BIO7, elevation, BIO12, vaporpressure)
-names(env) <- c("BIO7", "Elevation", "BIO12", "VaporPressure")
+env <- raster::stack(BIO7, elevation, BIO12, vapor)
+names(env) <- c("BIO7", "Elevation", "BIO12_Precip", "VaporPressure")
 
 cat("Layers:", paste(names(env), collapse = ", "), "\n")
 
-# checkpoints das layers (opcional, mas ajuda debug)
-raster::writeRaster(BIO7,         file.path(output_dir, "BIO7.tif"), overwrite = TRUE)
-raster::writeRaster(elevation,    file.path(output_dir, "Elevation.tif"), overwrite = TRUE)
-raster::writeRaster(BIO12,        file.path(output_dir, "BIO12.tif"), overwrite = TRUE)
-raster::writeRaster(vaporpressure,file.path(output_dir, "VaporPressure.tif"), overwrite = TRUE)
+# ---- checkpoint opcional (desligado para reduzir IO) ----
+# raster::writeRaster(env, file.path(output_dir, "ENV_STACK_4layers.tif"), overwrite = TRUE)
 
 # ======================================================
-# 4) BIOMOD_FormatingData (com PA)
+# 4) BIOMOD_FormatingData (com PA) — DISK, mas mais leve
 # ======================================================
+# Para reduzir TEMP:
+# - diminuir repetições / ausências na fase de teste (pode aumentar depois)
+# - manter filter.raster = TRUE
+# - manter distâncias coerentes
+PA_NB_REP <- 5        # era 10 (menos rep = menos temp)
+PA_NB_ABS <- 600      # era 1000 (menos abs = menos temp)
+
 biomod_data <- BIOMOD_FormatingData(
   resp.var = resp.var,
   expl.var = env,
-  resp.xy = coords,
-  PA.nb.rep = 10,
-  PA.nb.absences = 1000,
-  PA.strategy = "sre",
+  resp.xy  = coords,
+  PA.nb.rep = PA_NB_REP,
+  PA.nb.absences = PA_NB_ABS,
+  PA.strategy = "disk",
+  PA.dist.min = 20000,
+  PA.dist.max = 150000,
   filter.raster = TRUE,
   resp.name = "Vampyrum.spectrum"
 )
 
-saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste106.rds"))
+saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste107.rds"))
+
+# limpeza de temporários no meio do pipeline (ajuda muito em disco apertado)
+gc()
+unlink(list.files(tmp_dir, full.names = TRUE, recursive = TRUE), force = TRUE)
 
 # ======================================================
-# 5) Modelagem
+# 5) Modelagem (evitar salvar modelos cheios no disco)
 # ======================================================
+# do.full.models = FALSE reduz arquivos internos gerados
+mtry_auto <- max(2, floor(sqrt(raster::nlayers(env))))
+
 myOptions <- BIOMOD_ModelingOptions(
-  RF  = list(n.trees = 500, mtry = 2, nodesize = 20, maxnodes = 20),
-  GBM = list(n.trees = 2000, interaction.depth = 2, shrinkage = 0.005,
-             bag.fraction = 0.5, n.minobsinnode = 10),
-  MAXENT = list(betamultiplier = 3, features = "lq"),
+  RF  = list(n.trees = 500, mtry = mtry_auto, nodesize = 20, maxnodes = 20),
+  GBM = list(n.trees = 1500, interaction.depth = 2, shrinkage = 0.01,
+             bag.fraction = 0.6, n.minobsinnode = 10),
+  MAXENT = list(betamultiplier = 2.5, features = "lq"),
   GLM = list(type = "simple", test = "BIC"),
   GAM = list(k = 3)
 )
+cat("RF mtry_auto =", mtry_auto, " | nlayers(env) =", raster::nlayers(env), "\n")
 
 models <- BIOMOD_Modeling(
   biomod_data,
@@ -160,10 +191,14 @@ models <- BIOMOD_Modeling(
   CV.nb.rep = 5,
   prevalence = 0.5,
   metric.eval = c("TSS","ROC"),
-  var.import = 3
+  var.import = 3,
+  do.full.models = FALSE
 )
 
-saveRDS(models, file.path(output_dir, "models_teste106.rds"))
+saveRDS(models, file.path(output_dir, "models_teste107.rds"))
+
+gc()
+unlink(list.files(tmp_dir, full.names = TRUE, recursive = TRUE), force = TRUE)
 
 # ======================================================
 # 6) Ensemble
@@ -178,36 +213,45 @@ ensemble <- BIOMOD_EnsembleModeling(
   var.import = 3
 )
 
-saveRDS(ensemble, file.path(output_dir, "ensemble_teste106.rds"))
+saveRDS(ensemble, file.path(output_dir, "ensemble_teste107.rds"))
+
+gc()
+unlink(list.files(tmp_dir, full.names = TRUE, recursive = TRUE), force = TRUE)
 
 # ======================================================
 # 7) Ensemble Forecasting (RASTER ROBUSTO)
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble,
-  proj.name = "current_teste106",
+  proj.name = "current_teste107",
   new.env = env
 )
-saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste106.rds"))
+saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste107.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
+# 1) tentativa direta
 ensemble_raster_single <- tryCatch(terra::rast(pred_obj)[[1]], error = function(e) NULL)
 
+# 2) fallback via Raster*
 if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)) {
   rs <- tryCatch(raster::stack(pred_obj), error = function(e) NULL)
   if (!is.null(rs)) ensemble_raster_single <- terra::rast(rs)[[1]]
 }
 
+# 3) checagem final
 if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)) {
   stop("Não consegui obter raster do ensemble com valores. Veja class/str de get_predictions(ensemble_proj).")
 }
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_teste106.tif"),
+  file.path(output_dir, "ensemble_suitability_teste107.tif"),
   overwrite = TRUE
 )
+
+gc()
+unlink(list.files(tmp_dir, full.names = TRUE, recursive = TRUE), force = TRUE)
 
 # ======================================================
 # 8) Avaliações (Modelos: validation | Ensemble: calibration)
@@ -230,14 +274,14 @@ ens_tss <- ifelse(length(ens_tss) > 0, ens_tss[1], NA_real_)
 ens_roc <- ifelse(length(ens_roc) > 0, ens_roc[1], NA_real_)
 
 # ======================================================
-# 9) Importância das variáveis (com valores)
+# 9) Importância das variáveis
 # ======================================================
 importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   group_by(expl.var) %>%
   summarise(importance = mean(var.imp, na.rm = TRUE), .groups="drop") %>%
   rename(var = expl.var)
 
-write.csv(importance, file.path(output_dir, "importance_teste106.csv"), row.names = FALSE)
+write.csv(importance, file.path(output_dir, "importance_teste107.csv"), row.names = FALSE)
 
 importance_plot <- ggplot(
   importance %>% arrange(desc(importance)),
@@ -253,7 +297,7 @@ importance_plot <- ggplot(
   theme(plot.title = element_text(face="bold", hjust=0.5))
 
 # ======================================================
-# 10) Pseudo-ausências (ROBUSTO via @PA.table)
+# 10) Pseudo-ausências (via @PA.table)
 # ======================================================
 rep_id <- 1
 pa_colname <- paste0("PA", rep_id)
@@ -278,27 +322,19 @@ colnames(pa_pts) <- c("x","y")
 cat("Pseudo-ausências (rep", rep_id, "):", nrow(pa_pts), "\n")
 
 # ======================================================
-# 11) Painel por variável (SEM geom_spatraster)
+# 11) Painel por variável (SEM salvar tif por variável)
 # ======================================================
 as_xy_df <- function(obj) {
   df <- as.data.frame(obj)
-
   if (all(c("x","y") %in% names(df))) return(df[, c("x","y"), drop=FALSE])
-  if (all(c("lon","lat") %in% names(df))) {
-    out <- df[, c("lon","lat"), drop=FALSE]; names(out) <- c("x","y"); return(out)
-  }
-  if (all(c("longitude","latitude") %in% names(df))) {
-    out <- df[, c("longitude","latitude"), drop=FALSE]; names(out) <- c("x","y"); return(out)
-  }
-
+  if (all(c("lon","lat") %in% names(df))) { out <- df[, c("lon","lat"), drop=FALSE]; names(out) <- c("x","y"); return(out) }
+  if (all(c("longitude","latitude") %in% names(df))) { out <- df[, c("longitude","latitude"), drop=FALSE]; names(out) <- c("x","y"); return(out) }
   num_cols <- which(sapply(df, is.numeric))
   if (length(num_cols) >= 2) {
-    out <- df[, num_cols[1:2], drop=FALSE]
-    names(out) <- c("x","y")
+    out <- df[, num_cols[1:2], drop=FALSE]; names(out) <- c("x","y")
     warning("Coords sem nomes padrão; usei as 2 primeiras colunas numéricas como x,y.")
     return(out)
   }
-
   stop("Não consegui obter coordenadas x,y.")
 }
 
@@ -308,7 +344,6 @@ as_points_vect <- function(xy_df, crs_str) {
 }
 
 make_var_panel <- function(r, varname, coords_obj, pa_obj, imp_df) {
-
   rr <- terra::rast(r)
   crs_r <- terra::crs(rr)
   if (is.na(crs_r) || crs_r == "") crs_r <- "EPSG:4326"
@@ -357,9 +392,7 @@ make_var_panel <- function(r, varname, coords_obj, pa_obj, imp_df) {
   map | dist
 }
 
-var_panels <- lapply(names(env), function(v) {
-  make_var_panel(env[[v]], v, coords, pa_pts, importance)
-})
+var_panels <- lapply(names(env), function(v) make_var_panel(env[[v]], v, coords, pa_pts, importance))
 names(var_panels) <- names(env)
 
 vars_panel <- wrap_plots(var_panels, ncol=2) +
@@ -431,11 +464,11 @@ final_panel <- (suitability_map | importance_plot) /
   vars_panel /
   evaluation_panel +
   plot_annotation(
-    title="title = PANEL – Ecological Niche Modeling",
+    title="PANEL – Ecological Niche Modeling (teste107)",
     theme = theme(plot.title = element_text(size=14, face="bold"))
   )
 
-out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste106.png")
+out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste107.png")
 cat("Salvando:", out_panel, "\n")
 
 ok <- tryCatch({
@@ -456,20 +489,18 @@ if (!ok) {
 cat("✅ Concluído. Arquivos em:", output_dir, "\n")
 
 # ======================================================
-# 14) SAVE PANEL PARTS (PNG + TIF)
+# 14) SAVE PANEL PARTS (PNG + TIF) — SEM salvar cada variável
 # ======================================================
 parts_dir <- file.path(output_dir, "panel_parts")
 dir.create(parts_dir, recursive = TRUE, showWarnings = FALSE)
 
 save_plot_png_tif <- function(p, filename_base, w = 12, h = 8, dpi = 300) {
-
   ggsave(
     filename = file.path(parts_dir, paste0(filename_base, ".png")),
     plot = p,
     width = w, height = h, units = "in",
     dpi = dpi, limitsize = FALSE
   )
-
   ggsave(
     filename = file.path(parts_dir, paste0(filename_base, ".tif")),
     plot = p,
@@ -488,11 +519,9 @@ save_plot_png_tif(tss_plot,         "04_TSS_models",          w = 10, h = 6)
 save_plot_png_tif(roc_plot,         "05_ROC_models",          w = 10, h = 6)
 save_plot_png_tif(evaluation_panel, "06_metrics_panel",       w = 16, h = 6)
 
-if (exists("var_panels") && length(var_panels) > 0) {
-  for (nm in names(var_panels)) {
-    safe_nm <- gsub("[^A-Za-z0-9_\\-]+", "_", nm)
-    save_plot_png_tif(var_panels[[nm]], paste0("07_predictor_", safe_nm), w = 12, h = 6)
-  }
-}
+cat("✅ Saved panel parts to:", parts_dir, "\n")
 
-cat("✅ Saved all panel parts to:", parts_dir, "\n")
+# limpeza final do temp
+gc()
+unlink(list.files(tmp_dir, full.names = TRUE, recursive = TRUE), force = TRUE)
+cat("🧹 Temp limpo:", tmp_dir, "\n")
