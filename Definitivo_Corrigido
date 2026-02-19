@@ -28,7 +28,7 @@ set.seed(42)
 # 0.1) CONTROLE DE TEMP / DISCO (MUITO IMPORTANTE)
 # ======================================================
 # -> coloque em um disco com espaço (ideal: D: ou E:)
-tmp_dir <- "D:/R_TMP"   # <<< TROQUE se não existir D:
+tmp_dir <- "C:/R_TMP"   # <<< TROQUE se não existir D:
 dir.create(tmp_dir, showWarnings = FALSE, recursive = TRUE)
 
 # raster/terra usam essas pastas para processar em disco
