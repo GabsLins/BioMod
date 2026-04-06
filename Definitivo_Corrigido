@@ -1,6 +1,6 @@
 # ======================================================
 # Vampyrum spectrum – Modelos + Ensemble + Painel FINAL
-# (SCRIPT LIMPO / teste109) + THINNING 20 km
+# (SCRIPT LIMPO / teste110) + THINNING 20 km
 # Mantém SOMENTE: BIO7, Elevation, BIO12, VaporPressure
 # ======================================================
 
@@ -22,9 +22,9 @@ library(viridis)
 set.seed(42)
 
 # -----------------------------
-# 1) Diretório (teste109)
+# 1) Diretório (teste110)
 # -----------------------------
-output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste109_ensemble"
+output_dir <- "C:/Users/Administrador/Desktop/GAB/Mod/Resultados_teste110_ensemble"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Output:", output_dir, "\n")
 
@@ -72,7 +72,7 @@ resp.var <- rep(1, nrow(coords))
 
 write.csv(
   data.frame(species="Vampyrum_spectrum", lon=coords$x, lat=coords$y),
-  file.path(output_dir, "dados_ocorrencia_teste109.csv"),
+  file.path(output_dir, "dados_ocorrencia_teste110.csv"),
   row.names = FALSE
 )
 
@@ -138,7 +138,7 @@ biomod_data <- BIOMOD_FormatingData(
   resp.name = "Vampyrum.spectrum"
 )
 
-saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste109.rds"))
+saveRDS(biomod_data, file.path(output_dir, "biomod_data_teste110.rds"))
 
 # ======================================================
 # 5) Modelagem
@@ -163,7 +163,7 @@ models <- BIOMOD_Modeling(
   var.import = 3
 )
 
-saveRDS(models, file.path(output_dir, "models_teste109.rds"))
+saveRDS(models, file.path(output_dir, "models_teste110.rds"))
 
 # ======================================================
 # 6) Ensemble
@@ -178,17 +178,17 @@ ensemble <- BIOMOD_EnsembleModeling(
   var.import = 3
 )
 
-saveRDS(ensemble, file.path(output_dir, "ensemble_teste109.rds"))
+saveRDS(ensemble, file.path(output_dir, "ensemble_teste110.rds"))
 
 # ======================================================
 # 7) Ensemble Forecasting (RASTER ROBUSTO)
 # ======================================================
 ensemble_proj <- BIOMOD_EnsembleForecasting(
   bm.em = ensemble,
-  proj.name = "current_teste109",
+  proj.name = "current_teste110",
   new.env = env
 )
-saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste109.rds"))
+saveRDS(ensemble_proj, file.path(output_dir, "ensemble_proj_teste110.rds"))
 
 pred_obj <- get_predictions(ensemble_proj)
 
@@ -205,8 +205,81 @@ if (is.null(ensemble_raster_single) || !terra::hasValues(ensemble_raster_single)
 
 terra::writeRaster(
   ensemble_raster_single,
-  file.path(output_dir, "ensemble_suitability_teste109.tif"),
+  file.path(output_dir, "ensemble_suitability_teste110.tif"),
   overwrite = TRUE
+)
+
+
+###########################################
+### THRESHOLD PARA FAZER O MAPA BINÁRIO
+###########################################
+# ======================================================
+# 7.1) THRESHOLD AUTOMÁTICO + MAPA BINÁRIO
+# ======================================================
+
+# Avaliações dos modelos individuais
+ev_models_raw <- get_evaluations(models)
+ev_models_df  <- as.data.frame(ev_models_raw)
+
+cat("Colunas disponíveis em ev_models_df:\n")
+print(names(ev_models_df))
+
+# ---- ESCOLHA DA MÉTRICA QUE VAI DEFINIR O LIMIAR ----
+metric_threshold <- "TSS"   # pode trocar para "ROC" se quiser, mas TSS é mais comum para corte binário
+
+# ---- VERIFICA SE EXISTE COLUNA DE CUTOFF/THRESHOLD ----
+possible_cutoff_cols <- c("cutoff", "Cutoff", "threshold", "Threshold")
+cutoff_col <- possible_cutoff_cols[possible_cutoff_cols %in% names(ev_models_df)]
+
+if (length(cutoff_col) == 0) {
+  stop("Não encontrei coluna de cutoff/threshold em get_evaluations(models). Rode print(names(ev_models_df)) e verifique o nome exato.")
+}
+
+cutoff_col <- cutoff_col[1]
+
+# ---- FILTRA A MÉTRICA ESCOLHIDA ----
+ev_metric <- ev_models_df %>%
+  dplyr::filter(metric.eval == metric_threshold)
+
+if (nrow(ev_metric) == 0) {
+  stop("Não encontrei linhas para a métrica escolhida em ev_models_df.")
+}
+
+# ---- PEGA O LIMIAR MÉDIO DOS MODELOS ----
+# Pode usar validation ou calibration; validation costuma ser mais defensável
+# quando você quer um threshold baseado em desempenho fora da calibração.
+if ("validation" %in% names(ev_metric)) {
+  ev_metric <- ev_metric %>%
+    dplyr::filter(is.finite(validation), !is.na(validation))
+}
+
+###### AQUI ESCOLHO SE USA A MÉDIA OU A MEDIANA PRA FAZER O LIMITE
+
+threshold_value <- median(ev_metric[[cutoff_col]], na.rm = TRUE)
+
+if (!is.finite(threshold_value)) {
+  stop("O threshold calculado ficou NA/Inf. Verifique a coluna de cutoff.")
+}
+
+cat("Threshold automático escolhido (", metric_threshold, "): ", threshold_value, "\n", sep = "")
+
+# ---- GERA MAPA BINÁRIO A PARTIR DO RASTER CONTÍNUO ----
+binary_raster <- ensemble_raster_single >= threshold_value
+
+# opcional: converter TRUE/FALSE para 1/0
+binary_raster <- ifel(binary_raster, 1, 0)
+
+# ---- SALVA O MAPA BINÁRIO ----
+terra::writeRaster(
+  binary_raster,
+  file.path(output_dir, paste0("ensemble_binary_", metric_threshold, ".tif")),
+  overwrite = TRUE
+)
+
+# ---- SALVA O LIMIAR EM TXT ----
+writeLines(
+  paste0("Threshold usado (", metric_threshold, ") = ", threshold_value),
+  con = file.path(output_dir, paste0("threshold_", metric_threshold, ".txt"))
 )
 
 # ======================================================
@@ -237,7 +310,7 @@ importance <- as.data.frame(get_variables_importance(ensemble)) %>%
   summarise(importance = mean(var.imp, na.rm = TRUE), .groups="drop") %>%
   rename(var = expl.var)
 
-write.csv(importance, file.path(output_dir, "importance_teste109.csv"), row.names = FALSE)
+write.csv(importance, file.path(output_dir, "importance_teste110.csv"), row.names = FALSE)
 
 importance_plot <- ggplot(
   importance %>% arrange(desc(importance)),
@@ -424,6 +497,35 @@ tss_plot <- plot_metric("TSS", 0.7, ens_tss)
 roc_plot <- plot_metric("ROC", 0.8, ens_roc)
 evaluation_panel <- tss_plot | roc_plot
 
+#######################################################
+## FAZER MAPA BINÁRIO #################################
+#######################################################
+
+binary_crop <- tryCatch(terra::crop(binary_raster, target_ext), error=function(e) NULL)
+use_bin <- binary_crop
+if (is.null(use_bin) || !terra::hasValues(use_bin)) use_bin <- binary_raster
+
+bin_df <- as.data.frame(use_bin, xy = TRUE, na.rm = TRUE)
+colnames(bin_df)[3] <- "Binary"
+
+binary_map <- ggplot() +
+  geom_raster(data = bin_df, aes(x = x, y = y, fill = factor(Binary))) +
+  geom_sf(data = countries, fill = NA, color = "black", linewidth = 0.2) +
+  geom_point(data = pres_coords, aes(x = lon, y = lat), color = "black", size = 1, alpha = 0.6) +
+  scale_fill_manual(
+    values = c("0" = "grey85", "1" = "darkgreen"),
+    name = "Prediction",
+    labels = c("0" = "Unsuitable", "1" = "Suitable")
+  ) +
+  coord_sf(xlim = xlim_use, ylim = ylim_use, expand = FALSE) +
+  theme_minimal() +
+  labs(title = paste0("Binary suitability map (threshold = ", round(threshold_value, 3), ")")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))
+
+combined_map <- suitability_map | binary_map
+print(combined_map)
+
+
 # ======================================================
 # 13) Painel final + salvar
 # ======================================================
@@ -435,7 +537,7 @@ final_panel <- (suitability_map | importance_plot) /
     theme = theme(plot.title = element_text(size=14, face="bold"))
   )
 
-out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste109.png")
+out_panel <- file.path(output_dir, "04_Painel_INGLES_Final_COMPLETO_OFICIAL_teste110.png")
 cat("Salvando:", out_panel, "\n")
 
 ok <- tryCatch({
@@ -455,6 +557,33 @@ if (!ok) {
 
 cat("✅ Concluído. Arquivos em:", output_dir, "\n")
 
+### COM O BINÁRIO
+
+final_panel_continuous <- (suitability_map | importance_plot) /
+  vars_panel /
+  evaluation_panel +
+  plot_annotation(
+    title="PANEL – Ecological Niche Modeling",
+    theme = theme(plot.title = element_text(size=14, face="bold"))
+  )
+
+final_panel_binary <- (combined_map | importance_plot) /
+  vars_panel /
+  evaluation_panel +
+  plot_annotation(
+    title="PANEL – Ecological Niche Modeling",
+    theme = theme(plot.title = element_text(size=14, face="bold"))
+  )
+
+out_panel_cont <- file.path(output_dir, "04_Painel_INGLES_Final_CONTINUOUS_teste110.png")
+out_panel_bin  <- file.path(output_dir, "04_Painel_INGLES_Final_BINARIO_COMPLETO_OFICIAL_teste110.png")
+
+ggsave(out_panel_cont, plot = final_panel_continuous, width=22, height=24, units="in", dpi=300, limitsize=FALSE)
+ggsave(out_panel_bin,  plot = final_panel_binary,     width=22, height=24, units="in", dpi=300, limitsize=FALSE)
+
+
+save_plot_png_tif(binary_map,   "01b_binary_map",    w = 12, h = 8)
+save_plot_png_tif(combined_map, "01c_combined_maps", w = 16, h = 8)
 # ======================================================
 # 14) SAVE PANEL PARTS (PNG + TIF)
 # ======================================================
