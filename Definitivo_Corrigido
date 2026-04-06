@@ -481,7 +481,15 @@ plot_metric <- function(metric, lim, ens_val) {
     theme_minimal() +
     coord_cartesian(ylim=c(0,1)) +
     theme(legend.position="none") +
-    labs(title=metric, x="Modelo", y=metric)
+    labs(title=metric, x="Modelo", y=metric)+
+    theme(
+      plot.title = element_text(size = 18, face = "bold"),
+      axis.title = element_text(size = 16),
+      axis.text = element_text(size = 14),
+      strip.text = element_text(size = 14),
+      legend.title = element_text(size = 14),
+      legend.text = element_text(size = 12)
+      )
 
   if (is.finite(ens_val)) {
     p <- p +
