@@ -611,6 +611,8 @@ save_plot_png_tif <- function(p, filename_base, w = 12, h = 8, dpi = 300) {
 
 save_plot_png_tif(final_panel,      "00_final_panel",         w = 22, h = 24)
 save_plot_png_tif(suitability_map,  "01_ensemble_map",        w = 12, h = 8)
+save_plot_png_tif(binary_map,   "01b_binary_map",    w = 12, h = 8)
+save_plot_png_tif(combined_map, "01c_combined_maps", w = 16, h = 8)
 save_plot_png_tif(importance_plot,  "02_variable_importance", w = 10, h = 6)
 save_plot_png_tif(vars_panel,       "03_predictor_panels",    w = 18, h = 12)
 save_plot_png_tif(tss_plot,         "04_TSS_models",          w = 10, h = 6)
